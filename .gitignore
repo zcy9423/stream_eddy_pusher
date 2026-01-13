@@ -1,0 +1,61 @@
+# ========================
+# Qt 编译与生成文件
+# ========================
+# Qt Creator 或 qmake 生成的构建目录
+build/
+build-*/
+*build-*
+
+# 编译产生的中间文件
+*.o
+*.obj
+*.moc
+*.ui
+*.qrc
+
+# Qt 元对象编译器(MOC)和用户界面编译器(UIC)生成的文件
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+Makefile*
+
+# Qt 项目用户特定的配置文件 (包含本地路径，绝对不能上传)
+*.pro.user
+*.pro.user.*
+CMakeLists.txt.user
+
+# ========================
+# C++ 编译产物 (可执行文件与库)
+# ========================
+# Windows
+*.exe
+*.dll
+*.lib
+*.pdb
+*.idb
+*.ilk
+
+# Linux / MacOS
+*.so
+*.dylib
+*.a
+*.out
+
+# ========================
+# VS Code 本地配置
+# ========================
+# 这里的配置通常包含你本地的路径或插件状态，建议忽略
+.vscode/
+
+# 如果你想共享调试配置，可以只忽略 .vscode 下的特定文件，
+# 这种情况下注释掉上面的 '.vscode/'，解开下面的注释：
+# .vscode/*
+# !.vscode/launch.json
+# !.vscode/tasks.json
+# !.vscode/c_cpp_properties.json
+
+# ========================
+# 操作系统临时文件
+# ========================
+.DS_Store
+Thumbs.db

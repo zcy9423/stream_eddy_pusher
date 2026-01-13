@@ -1,0 +1,260 @@
+#include "taskmanager.h"
+
+#include <QDateTime>
+#include <QtMath>
+
+// 获取当前时间戳（毫秒）的辅助函数
+static qint64 nowMs()
+{
+    return QDateTime::currentMSecsSinceEpoch();
+}
+
+TaskManager::TaskManager(QObject* parent)
+    : QObject(parent)
+{
+    // 配置看门狗定时器，用于检测运动超时
+    m_watchdog.setInterval(100); // 10Hz 足够用于超时检测
+    connect(&m_watchdog, &QTimer::timeout, this, &TaskManager::onWatchdogTick);
+}
+
+/**
+ * @brief 判断任务管理器是否处于活跃状态
+ */
+bool TaskManager::isRunning() const
+{
+    return m_state == State::AutoForward
+        || m_state == State::AutoBackward
+        || m_state == State::Stopping;
+}
+
+void TaskManager::setPositionTolerance(double tol)
+{
+    m_tol = qMax(0.0, tol);
+}
+
+double TaskManager::positionTolerance() const
+{
+    return m_tol;
+}
+
+void TaskManager::setEdgeTimeoutMs(int ms)
+{
+    m_edgeTimeoutMs = qMax(1000, ms);
+}
+
+int TaskManager::edgeTimeoutMs() const
+{
+    return m_edgeTimeoutMs;
+}
+
+/**
+ * @brief 启动自动扫描任务
+ * 
+ * 1. 校验参数合法性。
+ * 2. 初始化任务变量。
+ * 3. 决定初始运动方向（离哪边远就往哪边跑，或者固定策略）。
+ * 4. 启动看门狗并发送运动指令。
+ */
+void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int cycles)
+{
+    // 参数校验
+    if (qIsNaN(minPos) || qIsNaN(maxPos) || qIsNaN(speed)) {
+        enterFault("startAutoScan: parameter is NaN.");
+        return;
+    }
+    if (maxPos <= minPos) {
+        enterFault("startAutoScan: maxPos must be greater than minPos.");
+        return;
+    }
+    if (speed <= 0.0) {
+        enterFault("startAutoScan: speed must be > 0.");
+        return;
+    }
+
+    m_minPos = minPos;
+    m_maxPos = maxPos;
+    m_speed  = speed;
+    m_targetCycles = cycles;
+    m_completedCycles = 0;
+
+    emit progressChanged(m_completedCycles, m_targetCycles);
+
+    // 启动策略：
+    // 如果当前位置更靠近 min 侧，先去 max；否则先去 min（这里简单逻辑：离谁远去谁）
+    const double distToMin = qAbs(m_position - m_minPos);
+    const double distToMax = qAbs(m_position - m_maxPos);
+
+    m_watchdog.start();
+
+    if (distToMax < distToMin) {
+        startMovingToMin();
+    } else {
+        startMovingToMax();
+    }
+
+    emit message(QString("自动扫描已启动：[最小=%1mm, 最大=%2mm], 速度=%3mm/s, 周期=%4")
+                 .arg(m_minPos).arg(m_maxPos).arg(m_speed).arg(m_targetCycles));
+}
+
+/**
+ * @brief 暂停任务
+ */
+void TaskManager::pause()
+{
+    if (m_state != State::AutoForward && m_state != State::AutoBackward) {
+        return;
+    }
+    m_lastMotionState = m_state; // 记住暂停前的状态，以便 resume 恢复
+    setState(State::Paused);
+    emit requestStop();
+    emit message("任务已暂停。");
+}
+
+/**
+ * @brief 恢复任务
+ */
+void TaskManager::resume()
+{
+    if (m_state != State::Paused) {
+        return;
+    }
+    // 根据之前的状态决定继续往哪个方向跑
+    if (m_lastMotionState == State::AutoForward) {
+        startMovingToMax();
+    } else if (m_lastMotionState == State::AutoBackward) {
+        startMovingToMin();
+    } else {
+        // 兜底：默认去max
+        startMovingToMax();
+    }
+    emit message("任务已恢复。");
+}
+
+/**
+ * @brief 停止所有任务
+ */
+void TaskManager::stopAll()
+{
+    if (m_state == State::Idle) {
+        return;
+    }
+    setState(State::Stopping);
+    emit requestStop();
+
+    // 立即回到 Idle（如果需要等设备确认停稳，可把这个延后到 status 回调中处理）
+    setState(State::Idle);
+    m_watchdog.stop();
+
+    emit message("任务已停止。");
+}
+
+/**
+ * @brief 核心逻辑：位置更新回调
+ * 
+ * 每次收到位置更新时，检查是否到达目标边界。
+ * 如果到达边界，触发状态跳转（反向运动或完成任务）。
+ */
+void TaskManager::onPositionUpdated(double position)
+{
+    m_position = position;
+
+    // 只有运行状态下才做边界判断
+    if (m_state == State::AutoForward) {
+        if (reached(m_position, m_maxPos)) {
+            // 到达 max：开始向 min
+            startMovingToMin();
+        }
+    } else if (m_state == State::AutoBackward) {
+        if (reached(m_position, m_minPos)) {
+            // 到达 min：完成一次往返
+            m_completedCycles++;
+            emit progressChanged(m_completedCycles, m_targetCycles);
+
+            // 检查是否完成所有周期
+            if (m_targetCycles > 0 && m_completedCycles >= m_targetCycles) {
+                emit requestStop();
+                setState(State::Idle);
+                m_watchdog.stop();
+                emit message("自动扫描已完成。");
+                return;
+            }
+
+            // 继续下一次：向 max
+            startMovingToMax();
+        }
+    }
+}
+
+/**
+ * @brief 看门狗超时检测
+ */
+void TaskManager::onWatchdogTick()
+{
+    if (m_state != State::AutoForward && m_state != State::AutoBackward) {
+        return;
+    }
+    // 如果还没记录开始时间，现在记录
+    if (m_motionStartMs <= 0) {
+        m_motionStartMs = nowMs();
+        return;
+    }
+
+    const qint64 elapsed = nowMs() - m_motionStartMs;
+    if (elapsed > m_edgeTimeoutMs) {
+        // 超时未到达目标边界
+        QString target = (m_state == State::AutoForward) ? "max" : "min";
+        enterFault(QString("边界超时：向%1移动已超过%2ms，当前位置=%3mm")
+                       .arg(target)
+                       .arg(elapsed)
+                       .arg(m_position));
+    }
+}
+
+void TaskManager::setState(State s)
+{
+    if (m_state == s) return;
+    m_state = s;
+    emit stateChanged(m_state);
+}
+
+/**
+ * @brief 进入故障状态
+ */
+void TaskManager::enterFault(const QString& reason)
+{
+    setState(State::Fault);
+    m_watchdog.stop();
+    emit requestStop(); // 尝试停止硬件
+    emit fault(reason);
+    emit message(QString("FAULT: %1").arg(reason));
+}
+
+/**
+ * @brief 辅助函数：开始向 Max 方向移动
+ */
+void TaskManager::startMovingToMax()
+{
+    setState(State::AutoForward);
+    m_motionStartMs = nowMs(); // 重置超时计时
+    emit requestMoveForward(m_speed);
+}
+
+/**
+ * @brief 辅助函数：开始向 Min 方向移动
+ */
+void TaskManager::startMovingToMin()
+{
+    setState(State::AutoBackward);
+    m_motionStartMs = nowMs(); // 重置超时计时
+    emit requestMoveBackward(m_speed);
+}
+
+/**
+ * @brief 判断是否到达目标位置
+ * 
+ * 简单地使用绝对值差与容差比较。
+ */
+bool TaskManager::reached(double pos, double target) const
+{
+    return qAbs(pos - target) <= m_tol;
+}

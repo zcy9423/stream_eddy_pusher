@@ -1,0 +1,52 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "qt6-mingw-debug",
+      "displayName": "Qt6 + MinGW 13.1 Debug",
+      "description": "使用 Qt6 自带 MinGW 13.1 工具链",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "E:/qt5/6.10.1/mingw_64",
+        "Qt6_DIR": "E:/qt5/6.10.1/mingw_64/lib/cmake/Qt6"
+      },
+      "environment": {
+        "PATH": "E:/qt5/Tools/mingw1310_64/bin;E:/qt5/6.10.1/mingw_64/bin;$penv{PATH}"
+      }
+    },
+    {
+      "name": "qt6-mingw-release",
+      "displayName": "Qt6 + MinGW 13.1 Release",
+      "description": "使用 Qt6 自带 MinGW 13.1 工具链",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "E:/qt5/6.10.1/mingw_64",
+        "Qt6_DIR": "E:/qt5/6.10.1/mingw_64/lib/cmake/Qt6"
+      },
+      "environment": {
+        "PATH": "E:/qt5/Tools/mingw1310_64/bin;E:/qt5/6.10.1/mingw_64/bin;$penv{PATH}"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "qt6-mingw-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "qt6-mingw-release",
+      "configuration": "Release"
+    }
+  ]
+}
