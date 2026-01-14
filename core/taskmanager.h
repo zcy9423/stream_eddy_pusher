@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QTimer>
+#include "../communication/protocol.h"
 
 /**
  * @brief 自动任务管理器类
@@ -110,6 +111,12 @@ public slots:
      * @param position 当前绝对位置
      */
     void onPositionUpdated(double position);
+    
+    /**
+     * @brief 接收完整的运动反馈
+     * @param fb 运动反馈数据
+     */
+    void updateFeedback(const MotionFeedback &fb);
 
 private slots:
     /**

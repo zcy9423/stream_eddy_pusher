@@ -6,6 +6,7 @@
 #include "../communication/serialmanager.h"
 #include "../communication/protocol.h"
 #include "../data/datamanager.h"
+#include "../core/taskmanager.h"
 
 /**
  * @brief 设备控制器类
@@ -59,6 +60,22 @@ public slots:
      */
     void setSpeed(double speed);
 
+    // 自动任务接口
+    void startAutoScan(double min, double max, double speed, int cycles);
+    void pauseAutoScan();
+    void resumeAutoScan();
+    void stopAutoScan();
+    // 暴露 TaskManager 供外部通过信号槽连接
+    TaskManager* taskManager() const { return m_taskManager; }
+    
+    // 暴露 DataManager 供外部获取数据库连接信息
+    DataManager* dataManager() const { return m_dataManager; }
+    
+    // 获取/设置当前任务ID
+    int currentTaskId() const { return m_currentTaskId; }
+    void startNewTask(const QString &operatorName, const QString &tubeId);
+    void endCurrentTask();
+
 signals:
     // --- 向下层 (通信层) 发送的指令 ---
     // 通过信号槽机制跨线程调用 SerialManager 的方法
@@ -98,6 +115,12 @@ signals:
      */
     void errorMessage(QString msg);
 
+    /**
+     * @brief 任务状态改变通知
+     * @param taskId 当前任务ID，-1表示无任务
+     */
+    void taskStateChanged(int taskId);
+
 private slots:
     /**
      * @brief 处理从 SerialManager 接收到的反馈数据
@@ -109,6 +132,9 @@ private:
     QThread m_workerThread;         ///< 负责通信的后台工作线程
     SerialManager *m_serialManager; ///< 串口管理器实例
     DataManager *m_dataManager;     ///< 数据管理器实例
+    TaskManager *m_taskManager;     ///< 任务管理器实例
+    
+    int m_currentTaskId = -1;       ///< 当前活动的任务ID (-1表示无任务)
 };
 
 #endif // DEVICECONTROLLER_H

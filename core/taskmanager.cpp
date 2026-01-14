@@ -2,6 +2,11 @@
 
 #include <QDateTime>
 #include <QtMath>
+#include <QDebug>
+
+#include "../communication/protocol.h"
+#include "../utils/logger.h"
+#include "configmanager.h"
 
 // 获取当前时间戳（毫秒）的辅助函数
 static qint64 nowMs()
@@ -12,6 +17,9 @@ static qint64 nowMs()
 TaskManager::TaskManager(QObject* parent)
     : QObject(parent)
 {
+    // 初始化超时参数
+    m_edgeTimeoutMs = ConfigManager::instance().motionTimeout();
+
     // 配置看门狗定时器，用于检测运动超时
     m_watchdog.setInterval(100); // 10Hz 足够用于超时检测
     connect(&m_watchdog, &QTimer::timeout, this, &TaskManager::onWatchdogTick);
@@ -57,11 +65,31 @@ int TaskManager::edgeTimeoutMs() const
  */
 void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int cycles)
 {
+    if (m_state != State::Idle && m_state != State::Fault) {
+        emit message("任务正在运行，请先停止");
+        return;
+    }
+
     // 参数校验
     if (qIsNaN(minPos) || qIsNaN(maxPos) || qIsNaN(speed)) {
         enterFault("startAutoScan: parameter is NaN.");
         return;
     }
+
+    // 参数校验：检查最大行程限制
+    double limitPos = ConfigManager::instance().maxPosition();
+    if (maxPos > limitPos) {
+        emit fault(QString("目标位置 %1 mm 超过系统最大行程限制 %2 mm").arg(maxPos).arg(limitPos));
+        return;
+    }
+    
+    // 参数校验：检查最大速度限制
+    double limitSpeed = ConfigManager::instance().maxSpeed();
+    if (speed > limitSpeed) {
+        emit fault(QString("目标速度 %1 mm/s 超过系统最大速度限制 %2 mm/s").arg(speed).arg(limitSpeed));
+        return;
+    }
+
     if (maxPos <= minPos) {
         enterFault("startAutoScan: maxPos must be greater than minPos.");
         return;
@@ -183,6 +211,20 @@ void TaskManager::onPositionUpdated(double position)
             startMovingToMax();
         }
     }
+}
+
+void TaskManager::updateFeedback(const MotionFeedback &fb)
+{
+    // 如果设备报错，自动任务也应立即中止
+    if (fb.errorCode != 0 || fb.status == DeviceStatus::Error) {
+        if (m_state != State::Idle && m_state != State::Fault) {
+            enterFault(QString("Device Error Code: %1").arg(fb.errorCode));
+        }
+        return;
+    }
+    
+    // 更新位置，驱动状态机
+    onPositionUpdated(fb.position_mm);
 }
 
 /**

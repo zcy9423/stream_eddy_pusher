@@ -116,17 +116,22 @@ void SerialManager::processCommand(ControlCommand cmd)
             m_simTargetSpeed = cmd.param;
             break;
         }
-        LOG_INFO << "[Sim] 接收命令类型：" << cmd.type << " 参数：" << cmd.param;
+        // 降低日志频率：仅在非位置更新命令时记录，或移除频繁日志
+        if (cmd.type != ControlCommand::SetSpeed) {
+             LOG_INFO << "[Sim] 接收命令类型：" << cmd.type << " 参数：" << cmd.param;
+        }
     } 
     else {
         // --- 真实模式逻辑 ---
         if (!m_serial || !m_serial->isOpen()) return;
         
-        // TODO: 实现具体的通信协议封装
-        // QByteArray packet = Protocol::pack(cmd); 
-        // m_serial->write(packet);
+        // 使用 Protocol::pack 将结构体转换为字节流
+        QByteArray packet = Protocol::pack(cmd); 
+        m_serial->write(packet);
         
-        LOG_INFO << "[Real] 发送命令类型：" << cmd.type << " 参数：" << cmd.param;
+        // 降低日志频率
+        // LOG_INFO << "[Real] 发送数据包，大小：" << packet.size() 
+        //          << "命令：" << cmd.type << " 参数：" << cmd.param;
     }
 }
 
@@ -138,12 +143,23 @@ void SerialManager::handleReadyRead()
     // 真实数据解析逻辑
     if (!m_serial) return;
     
+    // 1. 读取所有新到达的数据追加到缓冲区
     QByteArray data = m_serial->readAll();
-    // MotionFeedback fb = Protocol::parse(data);
-    // emit feedbackReceived(fb);
+    m_rxBuffer.append(data);
     
-    // 调试打印
-    // LOG_INFO << "收到真实串口数据，长度：" << data.size();
+    // 2. 循环尝试解析，直到缓冲区数据不足或无有效帧
+    // Protocol::parse 内部会自动移除已成功解析的数据
+    MotionFeedback fb;
+    while (Protocol::parse(m_rxBuffer, fb)) {
+        // 解析成功一帧，发送信号通知上层
+        emit feedbackReceived(fb);
+    }
+    
+    // 3. (可选) 防止缓冲区无限增长：如果堆积太多垃圾数据，强制清空
+    if (m_rxBuffer.size() > 4096) {
+        LOG_WARN << "接收缓冲区溢出，丢弃数据。";
+        m_rxBuffer.clear();
+    }
 }
 
 /**

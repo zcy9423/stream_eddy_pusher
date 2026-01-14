@@ -38,12 +38,18 @@ public:
      */
     bool initDatabase();
 
+    /**
+     * @brief 获取当前线程的数据库连接名称
+     */
+    QString connectionName() const;
+
 public slots:
     /**
      * @brief 记录运动日志
      * @param fb 运动反馈数据
+     * @param taskId 关联的任务ID (默认为-1，表示无任务)
      */
-    void logMotionData(const MotionFeedback &fb);
+    void logMotionData(const MotionFeedback &fb, int taskId = -1);
     
     /**
      * @brief 创建新的检测任务
@@ -55,12 +61,12 @@ public slots:
 
 private:
     /**
-     * @brief 获取当前线程的数据库连接名称
+     * @brief 获取当前线程的数据库连接名称 (Internal)
      * 使用线程ID作为后缀，确保连接不跨线程共享。
      */
     QString getConnectionName() const;
-    
-    const QString m_dbPath = "eddy_pusher.db"; ///< 数据库文件路径
+
+    QString m_dbPath; ///< 数据库文件路径
 };
 
 #endif // DATAMANAGER_H

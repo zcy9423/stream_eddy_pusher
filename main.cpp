@@ -26,8 +26,9 @@ int main(int argc, char *argv[])
 
     // 创建并显示主窗口
     MainWindow w;
-    w.resize(1024, 768); // 设置默认窗口大小
-    w.show(); // 显示窗口
+    // w.resize(1024, 768); // 移除硬编码大小，由 MainWindow 内部 adjustSize 决定
+    w.showMaximized(); // 建议默认最大化显示，以充分利用屏幕空间
+    // 如果不想最大化，也可以用 w.show()，此时会使用 adjustSize() 后的尺寸
 
     // 进入 Qt 的主事件循环
     // exec() 会阻塞直到 exit() 被调用（通常是在最后一个窗口关闭时）

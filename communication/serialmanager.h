@@ -87,6 +87,7 @@ private:
     bool m_isSimulating = false;     ///< 当前是否处于仿真模式
 
     QSerialPort *m_serial = nullptr; ///< Qt串口对象
+    QByteArray m_rxBuffer;           ///< 接收数据缓冲区 (用于处理并包/分包)
     
     // --- 仿真相关变量 ---
     QTimer *m_simTimer = nullptr;    ///< 仿真定时器

@@ -1,5 +1,6 @@
 #include "datamanager.h"
 #include "../utils/logger.h"
+#include "../core/configmanager.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QUuid>
@@ -7,6 +8,7 @@
 
 DataManager::DataManager(QObject *parent) : QObject(parent)
 {
+    m_dbPath = "EddyPusher.db"; // 默认路径
 }
 
 DataManager::~DataManager()
@@ -16,6 +18,11 @@ DataManager::~DataManager()
     if (QSqlDatabase::contains(connName)) {
         QSqlDatabase::removeDatabase(connName);
     }
+}
+
+QString DataManager::connectionName() const
+{
+    return getConnectionName();
 }
 
 /**
@@ -42,6 +49,10 @@ bool DataManager::initDatabase()
     QString connName = getConnectionName();
     QSqlDatabase db;
     
+    // 从配置中获取存储路径
+    QString dataDir = ConfigManager::instance().dataStoragePath();
+    m_dbPath = dataDir + "/EddyPusher.db";
+
     if (QSqlDatabase::contains(connName)) {
         db = QSqlDatabase::database(connName);
     } else {
@@ -84,7 +95,7 @@ bool DataManager::initDatabase()
  * 
  * 将当前的时间戳、位置、速度和状态写入 MotionLog 表。
  */
-void DataManager::logMotionData(const MotionFeedback &fb)
+void DataManager::logMotionData(const MotionFeedback &fb, int taskId)
 {
     // 注意：实际生产中如果数据频率很高（例如 > 100Hz），
     // 建议使用事务 (Transaction) 进行批量插入，或者先写入内存队列，由单独线程批量刷入数据库。
@@ -96,12 +107,13 @@ void DataManager::logMotionData(const MotionFeedback &fb)
     if (!db.isOpen()) return;
 
     QSqlQuery query(db);
-    query.prepare("INSERT INTO MotionLog (timestamp, position, speed, status) "
-                  "VALUES (:time, :pos, :spd, :stat)");
+    query.prepare("INSERT INTO MotionLog (timestamp, position, speed, status, task_id) "
+                  "VALUES (:time, :pos, :spd, :stat, :tid)");
     query.bindValue(":time", QDateTime::currentDateTime());
     query.bindValue(":pos", fb.position_mm);
     query.bindValue(":spd", fb.speed_mm_s);
     query.bindValue(":stat", static_cast<int>(fb.status));
+    query.bindValue(":tid", taskId == -1 ? QVariant() : taskId);
     
     if (!query.exec()) {
         // 记录错误，但避免日志泛滥

@@ -12,19 +12,36 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC OFF) # 我们纯代码写界面，不需要 UIC
 
-# 查找 Qt 库 (兼容 Qt6 和 Qt5)
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Widgets SerialPort Sql)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Widgets SerialPort Sql)
+# 查找 Qt 库 (强制 Qt6)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Sql)
 
 # 源文件列表 (显式列出以符合 VS Code 浏览习惯)
 set(PROJECT_SOURCES
     main.cpp
     mainwindow.cpp
     mainwindow.h
+    ui/connectionwidget.cpp
+    ui/connectionwidget.h
+    ui/statuswidget.cpp
+    ui/statuswidget.h
+    ui/manualcontrolwidget.cpp
+    ui/manualcontrolwidget.h
+    ui/autotaskwidget.cpp
+    ui/autotaskwidget.h
+    ui/taskconfigdialog.cpp
+    ui/taskconfigdialog.h
+    ui/tasksetupwidget.cpp
+    ui/tasksetupwidget.h
+    ui/settingsdialog.cpp
+    ui/settingsdialog.h
+    ui/logwidget.cpp
+    ui/logwidget.h
     core/devicecontroller.cpp
     core/devicecontroller.h
     core/taskmanager.cpp
     core/taskmanager.h
+    core/configmanager.cpp
+    core/configmanager.h
     communication/serialmanager.cpp
     communication/serialmanager.h
     communication/protocol.h
@@ -39,11 +56,11 @@ add_executable(EddyPusher ${PROJECT_SOURCES})
 
 # 链接库
 target_link_libraries(EddyPusher PRIVATE
-    Qt${QT_VERSION_MAJOR}::Core
-    Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Widgets
-    Qt${QT_VERSION_MAJOR}::SerialPort
-    Qt${QT_VERSION_MAJOR}::Sql
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::SerialPort
+    Qt6::Sql
 )
 
 # 如果是 Windows 且是 Release 模式，可能希望隐藏控制台，可解开下行注释
