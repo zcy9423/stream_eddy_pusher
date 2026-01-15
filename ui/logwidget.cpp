@@ -14,12 +14,9 @@
 
 LogWidget::LogWidget(QWidget *parent) : QGroupBox("数据日志 (SQLite)", parent)
 {
-    // ... shadow effect code ...
-    QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect;
-    shadow->setBlurRadius(15);
-    shadow->setColor(QColor(0, 0, 0, 20));
-    shadow->setOffset(0, 2);
-    this->setGraphicsEffect(shadow);
+    // 移除阴影
+    // QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect; ...
+    // this->setGraphicsEffect(shadow);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(20, 20, 20, 20);
@@ -50,11 +47,11 @@ LogWidget::LogWidget(QWidget *parent) : QGroupBox("数据日志 (SQLite)", paren
     m_btnExport->setObjectName("btnConnect"); // 复用样式
     m_btnExport->setEnabled(false); // 初始禁用，选中任务后启用
     
-    filterLayout->addWidget(new QLabel("开始日期:"));
+    filterLayout->addWidget(new QLabel("开始日期\nStart:"));
     filterLayout->addWidget(m_dateStart);
-    filterLayout->addWidget(new QLabel("结束日期:"));
+    filterLayout->addWidget(new QLabel("结束日期\nEnd:"));
     filterLayout->addWidget(m_dateEnd);
-    filterLayout->addWidget(new QLabel("管号:"));
+    filterLayout->addWidget(new QLabel("管号\nTube ID:"));
     filterLayout->addWidget(m_editTubeId);
     filterLayout->addWidget(m_btnQuery);
     filterLayout->addStretch();

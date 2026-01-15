@@ -59,6 +59,12 @@ public slots:
      */
     int createDetectionTask(const QString &operatorName, const QString &tubeId);
 
+    /**
+     * @brief 自动清理旧数据
+     * @param daysToKeep 保留最近多少天的数据 (默认30天)
+     */
+    void cleanupOldData(int daysToKeep = 30);
+
 private:
     /**
      * @brief 获取当前线程的数据库连接名称 (Internal)

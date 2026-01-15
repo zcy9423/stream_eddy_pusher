@@ -32,7 +32,8 @@ bool TaskManager::isRunning() const
 {
     return m_state == State::AutoForward
         || m_state == State::AutoBackward
-        || m_state == State::Stopping;
+        || m_state == State::Stopping
+        || m_state == State::StepExecution;
 }
 
 void TaskManager::setPositionTolerance(double tol)
@@ -124,12 +125,40 @@ void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int 
                  .arg(m_minPos).arg(m_maxPos).arg(m_speed).arg(m_targetCycles));
 }
 
+void TaskManager::startTaskSequence(const QList<TaskStep> &steps, int cycles)
+{
+    if (m_state != State::Idle && m_state != State::Fault) {
+        emit message("任务正在运行，请先停止");
+        return;
+    }
+    if (steps.isEmpty()) {
+        emit fault("任务序列为空");
+        return;
+    }
+
+    m_sequenceSteps = steps;
+    m_targetCycles = cycles;
+    m_completedCycles = 0;
+    m_currentStepIndex = -1; // 将在 executeNextStep 中自增为 0
+    m_isStepWaiting = false;
+
+    emit progressChanged(m_completedCycles, m_targetCycles);
+    
+    // 开始执行
+    setState(State::StepExecution);
+    m_watchdog.start();
+    
+    emit message(QString("高级任务序列已启动：步骤数=%1, 周期=%2").arg(steps.size()).arg(cycles));
+    
+    executeNextStep();
+}
+
 /**
  * @brief 暂停任务
  */
 void TaskManager::pause()
 {
-    if (m_state != State::AutoForward && m_state != State::AutoBackward) {
+    if (m_state != State::AutoForward && m_state != State::AutoBackward && m_state != State::StepExecution) {
         return;
     }
     m_lastMotionState = m_state; // 记住暂停前的状态，以便 resume 恢复
@@ -146,8 +175,19 @@ void TaskManager::resume()
     if (m_state != State::Paused) {
         return;
     }
-    // 根据之前的状态决定继续往哪个方向跑
-    if (m_lastMotionState == State::AutoForward) {
+    
+    if (m_lastMotionState == State::StepExecution) {
+         setState(State::StepExecution);
+         // 恢复时如果是等待状态，需要特殊处理，这里简化为继续执行当前步骤
+         if (m_isStepWaiting) {
+             // 继续等待
+         } else {
+             // 重新触发当前步骤的动作（例如继续移动）
+             if (m_currentStepIndex >= 0 && m_currentStepIndex < m_sequenceSteps.size()) {
+                 executeStep(m_sequenceSteps.at(m_currentStepIndex));
+             }
+         }
+    } else if (m_lastMotionState == State::AutoForward) {
         startMovingToMax();
     } else if (m_lastMotionState == State::AutoBackward) {
         startMovingToMin();
@@ -187,7 +227,9 @@ void TaskManager::onPositionUpdated(double position)
     m_position = position;
 
     // 只有运行状态下才做边界判断
-    if (m_state == State::AutoForward) {
+    if (m_state == State::StepExecution) {
+        checkStepCompletion(m_position);
+    } else if (m_state == State::AutoForward) {
         if (reached(m_position, m_maxPos)) {
             // 到达 max：开始向 min
             startMovingToMin();
@@ -232,7 +274,18 @@ void TaskManager::updateFeedback(const MotionFeedback &fb)
  */
 void TaskManager::onWatchdogTick()
 {
-    if (m_state != State::AutoForward && m_state != State::AutoBackward) {
+    // 序列任务中的 Wait 检查
+    if (m_state == State::StepExecution && m_isStepWaiting) {
+        qint64 elapsed = nowMs() - m_waitStartTime;
+        if (elapsed >= m_waitDurationMs) {
+            // 等待结束
+            m_isStepWaiting = false;
+            executeNextStep();
+        }
+        return;
+    }
+
+    if (m_state != State::AutoForward && m_state != State::AutoBackward && m_state != State::StepExecution) {
         return;
     }
     // 如果还没记录开始时间，现在记录
@@ -241,11 +294,17 @@ void TaskManager::onWatchdogTick()
         return;
     }
 
+    // 序列任务中，如果是在移动，也需要检查超时 (Motion MoveTo)
+    // 这里简单共用 edgeTimeout
     const qint64 elapsed = nowMs() - m_motionStartMs;
     if (elapsed > m_edgeTimeoutMs) {
         // 超时未到达目标边界
-        QString target = (m_state == State::AutoForward) ? "max" : "min";
-        enterFault(QString("边界超时：向%1移动已超过%2ms，当前位置=%3mm")
+        QString target = "target";
+        if (m_state == State::AutoForward) target = "max";
+        else if (m_state == State::AutoBackward) target = "min";
+        else if (m_state == State::StepExecution) target = QString("Step %1 Target").arg(m_currentStepIndex);
+
+        enterFault(QString("运动超时：向%1移动已超过%2ms，当前位置=%3mm")
                        .arg(target)
                        .arg(elapsed)
                        .arg(m_position));
@@ -299,4 +358,87 @@ void TaskManager::startMovingToMin()
 bool TaskManager::reached(double pos, double target) const
 {
     return qAbs(pos - target) <= m_tol;
+}
+
+// --- 序列执行相关 ---
+
+void TaskManager::executeNextStep()
+{
+    m_currentStepIndex++;
+    if (m_currentStepIndex >= m_sequenceSteps.size()) {
+        // 当前周期完成
+        m_completedCycles++;
+        emit progressChanged(m_completedCycles, m_targetCycles);
+
+        if (m_targetCycles > 0 && m_completedCycles >= m_targetCycles) {
+            // 所有周期完成
+            emit requestStop();
+            setState(State::Idle);
+            m_watchdog.stop();
+            emit message("高级任务序列已完成。");
+            return;
+        }
+
+        // 下一个周期
+        m_currentStepIndex = 0;
+    }
+
+    const TaskStep &step = m_sequenceSteps.at(m_currentStepIndex);
+    executeStep(step);
+}
+
+void TaskManager::executeStep(const TaskStep &step)
+{
+    QString stepDesc = step.description.isEmpty() ? QString("Step %1").arg(m_currentStepIndex) : step.description;
+    emit message(QString("执行步骤: %1").arg(stepDesc));
+
+    switch (step.type) {
+    case StepType::MoveTo: {
+        double target = step.param1;
+        double speed = step.param2 > 0 ? step.param2 : m_speed; 
+        
+        m_currentStepTargetPos = target;
+        m_motionStartMs = nowMs(); // 重置超时
+        
+        // 简单判断方向
+        if (target > m_position) {
+             emit requestMoveForward(speed);
+        } else {
+             emit requestMoveBackward(speed);
+        }
+        break;
+    }
+    case StepType::Wait: {
+        int ms = static_cast<int>(step.param1);
+        m_waitDurationMs = ms;
+        m_waitStartTime = nowMs();
+        m_isStepWaiting = true;
+        emit requestStop(); // 等待时停止运动
+        break;
+    }
+    case StepType::SetSpeed: {
+        double newSpeed = step.param1;
+        if (newSpeed > 0) {
+            m_speed = newSpeed;
+        }
+        executeNextStep(); // 立即执行下一步
+        break;
+    }
+    }
+}
+
+void TaskManager::checkStepCompletion(double currentPos)
+{
+    if (m_state != State::StepExecution) return;
+    if (m_isStepWaiting) return; // 等待中由 Watchdog 处理
+
+    // 如果是 MoveTo 步骤
+    if (m_currentStepIndex >= 0 && m_currentStepIndex < m_sequenceSteps.size()) {
+        const TaskStep &step = m_sequenceSteps.at(m_currentStepIndex);
+        if (step.type == StepType::MoveTo) {
+             if (reached(currentPos, m_currentStepTargetPos)) {
+                 executeNextStep();
+             }
+        }
+    }
 }

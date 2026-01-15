@@ -3,7 +3,7 @@
 
 #include <QObject>
 #include <QThread>
-#include "../communication/serialmanager.h"
+#include "../communication/communicationmanager.h"
 #include "../communication/protocol.h"
 #include "../data/datamanager.h"
 #include "../core/taskmanager.h"
@@ -11,8 +11,8 @@
 /**
  * @brief 设备控制器类
  * 
- * 作为系统的核心中枢，负责协调 UI 层、通信层 (SerialManager) 和数据层 (DataManager)。
- * 它拥有一个工作线程，将 SerialManager 移动到该线程中运行，以避免阻塞主 UI 线程。
+ * 作为系统的核心中枢，负责协调 UI 层、通信层 (CommunicationManager) 和数据层 (DataManager)。
+ * 它拥有一个工作线程，将 CommunicationManager 移动到该线程中运行，以避免阻塞主 UI 线程。
  */
 class DeviceController : public QObject
 {
@@ -32,10 +32,11 @@ public slots:
 
     /**
      * @brief 请求连接设备
-     * @param port 端口名
-     * @param baud 波特率
+     * @param type 连接类型 (0=Serial, 1=Tcp, 2=Sim)
+     * @param addr 地址 (串口名 或 IP)
+     * @param portOrBaud 参数 (波特率 或 端口)
      */
-    void requestConnect(const QString &port, int baud);
+    void requestConnect(int type, const QString &addr, int portOrBaud);
 
     /**
      * @brief 请求断开连接
@@ -77,18 +78,19 @@ public slots:
     void endCurrentTask();
 
 signals:
+    void taskCreated(int taskId, const QString& op, const QString& tube);
     // --- 向下层 (通信层) 发送的指令 ---
-    // 通过信号槽机制跨线程调用 SerialManager 的方法
+    // 通过信号槽机制跨线程调用 CommunicationManager 的方法
 
     /**
-     * @brief 命令：打开串口
+     * @brief 命令：打开连接
      */
-    void cmdOpenPort(const QString &port, int baud);
+    void cmdOpenConnection(int type, const QString &addr, int portOrBaud);
 
     /**
-     * @brief 命令：关闭串口
+     * @brief 命令：关闭连接
      */
-    void cmdClosePort();
+    void cmdCloseConnection();
 
     /**
      * @brief 命令：发送控制指令包
@@ -123,18 +125,18 @@ signals:
 
 private slots:
     /**
-     * @brief 处理从 SerialManager 接收到的反馈数据
+     * @brief 处理从 CommunicationManager 接收到的反馈数据
      * @param fb 反馈数据
      */
     void onFeedbackReceived(MotionFeedback fb);
 
 private:
-    QThread m_workerThread;         ///< 负责通信的后台工作线程
-    SerialManager *m_serialManager; ///< 串口管理器实例
-    DataManager *m_dataManager;     ///< 数据管理器实例
-    TaskManager *m_taskManager;     ///< 任务管理器实例
+    QThread m_workerThread;             ///< 负责通信的后台工作线程
+    CommunicationManager *m_commManager; ///< 通信管理器实例
+    DataManager *m_dataManager;         ///< 数据管理器实例
+    TaskManager *m_taskManager;         ///< 任务管理器实例
     
-    int m_currentTaskId = -1;       ///< 当前活动的任务ID (-1表示无任务)
+    int m_currentTaskId = -1;           ///< 当前活动的任务ID (-1表示无任务)
 };
 
 #endif // DEVICECONTROLLER_H

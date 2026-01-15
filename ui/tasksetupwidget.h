@@ -6,6 +6,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QLabel>
+#include <QTableWidget>
 
 /**
  * @brief 任务配置页面
@@ -21,25 +22,33 @@ public:
     /**
      * @brief 更新当前任务状态显示
      * @param taskId 当前任务ID (-1 表示无任务)
+     * @param opName 可选：如果提供，将用于填充列表（通常是新任务创建时）
+     * @param tubeId 可选：如果提供，将用于填充列表
      */
-    void updateTaskState(int taskId);
+    void updateTaskState(int taskId, const QString& opName = "", const QString& tubeId = "");
 
     QString operatorName() const;
     QString tubeId() const;
 
 signals:
-    void startTaskClicked();
+    void createTaskClicked(const QString &opName, const QString &tubeId);
+    void startTaskClicked(int taskId);
     void endTaskClicked();
 
 private:
     QLineEdit *m_editOperator;
     QLineEdit *m_editTubeId;
-    QPushButton *m_btnStart;
-    QPushButton *m_btnEnd;
-    QLabel *m_lblCurrentStatus;
+    QPushButton *m_btnCreate;
+    
+    // 任务列表相关
+    QTableWidget *m_taskTable;
+    
+    // 当前活跃任务ID
+    int m_activeTaskId = -1;
 
 private slots:
     void checkInput();
+    void onTableBtnClicked();
 };
 
 #endif // TASKSETUPWIDGET_H

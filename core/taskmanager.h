@@ -33,11 +33,39 @@ public:
         AutoBackward,   ///< 自动向后移动中
         Paused,         ///< 暂停状态
         Stopping,       ///< 正在停止
-        Fault           ///< 故障状态
+        Fault,          ///< 故障状态
+        StepExecution   ///< 脚本/配方执行中
     };
     Q_ENUM(State)
 
+    /**
+     * @brief 任务步骤类型
+     */
+    enum class StepType {
+        MoveTo,     ///< 移动到绝对位置
+        Wait,       ///< 等待一段时间
+        SetSpeed    ///< 设置速度
+    };
+    Q_ENUM(StepType)
+
+    /**
+     * @brief 任务步骤结构体
+     */
+    struct TaskStep {
+        StepType type;
+        double param1 = 0.0; // MoveTo: targetPos; Wait: ms; SetSpeed: speed
+        double param2 = 0.0; // MoveTo: speed (optional)
+        QString description;
+    };
+
     explicit TaskManager(QObject* parent = nullptr);
+
+    /**
+     * @brief 启动高级任务序列 (脚本化控制)
+     * @param steps 步骤列表
+     * @param cycles 循环执行次数 (<=0 无限)
+     */
+    Q_INVOKABLE void startTaskSequence(const QList<TaskStep> &steps, int cycles = 1);
 
     /**
      * @brief 启动自动往返扫描任务
@@ -135,16 +163,31 @@ private:
     // 判断是否到达目标位置 (在容差范围内)
     bool reached(double pos, double target) const;
 
+    // --- 序列执行相关 ---
+    void executeNextStep();
+    void executeStep(const TaskStep &step);
+    void checkStepCompletion(double currentPos);
+
 private:
     State   m_state {State::Idle};
     State   m_lastMotionState {State::Idle};
 
+    // 自动扫描参数 (Legacy)
     double  m_minPos {0.0};
     double  m_maxPos {0.0};
     double  m_speed  {1.0};
 
+    // 通用参数
     int     m_targetCycles {1};   // <=0 infinite
     int     m_completedCycles {0};
+
+    // 序列任务参数
+    QList<TaskStep> m_sequenceSteps;
+    int m_currentStepIndex {0};
+    double m_currentStepTargetPos {0.0};
+    bool m_isStepWaiting {false};
+    qint64 m_waitStartTime {0};
+    int m_waitDurationMs {0};
 
     double  m_position {0.0};
     double  m_tol {0.2};          // 到位容差

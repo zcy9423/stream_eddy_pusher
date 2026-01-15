@@ -87,7 +87,54 @@ bool DataManager::initDatabase()
                          
     if (!success) LOG_ERR << "创建日志失败：" << query.lastError().text();
 
+    // 初始化完成后，执行一次数据清理 (自动维护策略)
+    cleanupOldData(30);
+
     return success;
+}
+
+/**
+ * @brief 自动清理旧数据
+ * 删除 MotionLog 和 DetectionTask 表中超过指定天数的数据，
+ * 防止数据库文件无限增长。
+ */
+void DataManager::cleanupOldData(int daysToKeep)
+{
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return;
+
+    QSqlQuery query(db);
+    
+    // 计算截止时间点
+    QDateTime cutoffTime = QDateTime::currentDateTime().addDays(-daysToKeep);
+    
+    // 1. 清理运动日志 (MotionLog)
+    query.prepare("DELETE FROM MotionLog WHERE timestamp < :cutoff");
+    query.bindValue(":cutoff", cutoffTime);
+    if (query.exec()) {
+        int deleted = query.numRowsAffected();
+        if (deleted > 0) {
+            LOG_INFO << "自动清理: 已删除" << deleted << "条过期的运动日志 (超过" << daysToKeep << "天)";
+        }
+    } else {
+        LOG_ERR << "清理 MotionLog 失败:" << query.lastError().text();
+    }
+
+    // 2. 清理任务记录 (DetectionTask)
+    query.prepare("DELETE FROM DetectionTask WHERE start_time < :cutoff");
+    query.bindValue(":cutoff", cutoffTime);
+    if (query.exec()) {
+        int deleted = query.numRowsAffected();
+        if (deleted > 0) {
+            LOG_INFO << "自动清理: 已删除" << deleted << "条过期的任务记录";
+        }
+    } else {
+        LOG_ERR << "清理 DetectionTask 失败:" << query.lastError().text();
+    }
+    
+    // 3. 执行 VACUUM 释放磁盘空间 (可选，操作较重，建议在空闲时执行)
+    // query.exec("VACUUM");
 }
 
 /**

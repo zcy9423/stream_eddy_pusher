@@ -13,7 +13,11 @@
 #include "ui/logwidget.h"
 #include "ui/tasksetupwidget.h"
 #include "ui/settingsdialog.h"
+#include "ui/logindialog.h"
+#include "ui/usermanagementdialog.h"
 #include "core/configmanager.h"
+#include "core/usermanager.h"
+#include <QLabel>
 
 /**
  * @brief 主窗口类
@@ -44,10 +48,11 @@ private slots:
     /**
      * @brief 处理“连接/断开”按钮点击事件
      */
-    void onConnectClicked();
+    void onConnectClicked(int type, const QString &addr, int portOrBaud);
 
     // 菜单栏事件
     void onSettingsClicked();
+    void onLoginLogoutClicked();
 
     void onForwardPressed();
     void onBackwardPressed();
@@ -65,6 +70,12 @@ private slots:
      * 为了性能考虑，不是每次插入数据都刷新，而是定时刷新
      */
     void updateLogView();
+
+    // 用户权限变更
+    void onUserChanged(const UserManager::User &user);
+
+    // 打开用户管理界面
+    void onManageUsersClicked();
 
 private:
     /**
@@ -85,8 +96,21 @@ private:
      */
     void applyStyles();
 
+    /**
+     * @brief 检查并强制登录
+     */
+    void checkLogin();
+    QIcon createIcon(const QString &text, const QColor &bg, const QColor &fg); // 新增图标生成辅助函数
+
     // --- UI 组件指针 ---
     QListWidget *m_navList;        ///< 左侧导航栏
+    QLabel *m_lblUserInfo;         ///< 用户信息显示
+    
+    // Header 按钮
+    QPushButton *m_btnSettings;
+    QPushButton *m_btnLogin;
+    QPushButton *m_btnManageUsers;
+    
     QStackedWidget *m_mainStack;   ///< 右侧内容区域
 
     ConnectionWidget *m_connWidget;

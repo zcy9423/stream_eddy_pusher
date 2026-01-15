@@ -4,7 +4,7 @@ set(CMAKE_PREFIX_PATH "E:/qt/6.10.1/mingw_64")
 
 project(EddyPusher VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 开启 Qt MOC, RCC 自动处理
@@ -13,7 +13,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC OFF) # 我们纯代码写界面，不需要 UIC
 
 # 查找 Qt 库 (强制 Qt6)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Sql Network Charts)
 
 # 源文件列表 (显式列出以符合 VS Code 浏览习惯)
 set(PROJECT_SOURCES
@@ -34,6 +34,10 @@ set(PROJECT_SOURCES
     ui/tasksetupwidget.h
     ui/settingsdialog.cpp
     ui/settingsdialog.h
+    ui/logindialog.cpp
+    ui/logindialog.h
+    ui/usermanagementdialog.cpp
+    ui/usermanagementdialog.h
     ui/logwidget.cpp
     ui/logwidget.h
     core/devicecontroller.cpp
@@ -42,8 +46,10 @@ set(PROJECT_SOURCES
     core/taskmanager.h
     core/configmanager.cpp
     core/configmanager.h
-    communication/serialmanager.cpp
-    communication/serialmanager.h
+    core/usermanager.cpp
+    core/usermanager.h
+    communication/communicationmanager.cpp
+    communication/communicationmanager.h
     communication/protocol.h
     data/datamanager.cpp
     data/datamanager.h
@@ -61,6 +67,8 @@ target_link_libraries(EddyPusher PRIVATE
     Qt6::Widgets
     Qt6::SerialPort
     Qt6::Sql
+    Qt6::Network
+    Qt6::Charts
 )
 
 # 如果是 Windows 且是 Release 模式，可能希望隐藏控制台，可解开下行注释

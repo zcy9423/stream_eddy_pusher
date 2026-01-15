@@ -6,6 +6,8 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QHBoxLayout>
+#include <QStackedWidget>
+#include <QLineEdit>
 #include <QSerialPortInfo>
 
 class ConnectionWidget : public QWidget
@@ -14,17 +16,32 @@ class ConnectionWidget : public QWidget
 public:
     explicit ConnectionWidget(QWidget *parent = nullptr);
 
-    QString currentPort() const;
-    int currentBaud() const;
     void setConnectedState(bool connected);
 
 signals:
-    void connectClicked();
+    // type: 0=Serial, 1=Tcp, 2=Sim
+    void connectClicked(int type, const QString &addr, int portOrBaud);
+
+private slots:
+    void onModeChanged(int index);
+    void onConnectBtnClicked();
 
 private:
+    QComboBox *m_modeCombo;
+    QStackedWidget *m_stack;
+    QPushButton *m_btnConnect;
+    
+    // Serial Page
+    QWidget *m_pageSerial;
     QComboBox *m_portCombo;
     QComboBox *m_baudCombo;
-    QPushButton *m_btnConnect;
+
+    // TCP Page
+    QWidget *m_pageTcp;
+    QLineEdit *m_ipEdit;
+    QLineEdit *m_tcpPortEdit;
+
+    bool m_isConnected = false;
 };
 
 #endif // CONNECTIONWIDGET_H

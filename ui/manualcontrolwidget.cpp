@@ -12,19 +12,26 @@ ManualControlWidget::ManualControlWidget(QWidget *parent)
     // 默认禁用，等待连接成功且任务创建后启用
     // 放到构造函数末尾调用 setControlsEnabled(false) 以确保组件已创建
     
-    QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect;
-    shadow->setBlurRadius(15);
-    shadow->setColor(QColor(0, 0, 0, 20));
-    shadow->setOffset(0, 2);
-    this->setGraphicsEffect(shadow);
+    // 移除阴影
+    // QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect;
+    // shadow->setBlurRadius(15);
+    // shadow->setColor(QColor(0, 0, 0, 20));
+    // shadow->setOffset(0, 2);
+    // this->setGraphicsEffect(shadow);
     this->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
     QVBoxLayout *controlWrap = new QVBoxLayout(this);
-    controlWrap->setContentsMargins(30, 30, 30, 30);
+    controlWrap->setContentsMargins(20, 20, 20, 20);
+    controlWrap->setSpacing(25);
+
+    // 标题
+    QLabel *lblTitle = new QLabel("手动控制 (Manual Control)", this);
+    lblTitle->setStyleSheet("font-size: 16px; font-weight: bold; color: #2C3E50;"); // 适配亮色
+    controlWrap->addWidget(lblTitle);
 
     QHBoxLayout *sliderLayout = new QHBoxLayout();
     QLabel *iconSpeed = new QLabel("⚙️ 速度设定:");
-    iconSpeed->setStyleSheet("color: #34495e; font-weight: bold;");
+    iconSpeed->setStyleSheet("color: #2C3E50; font-weight: bold;"); // 适配亮色
     
     m_speedSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider->setRange(0, 100);
@@ -32,9 +39,10 @@ ManualControlWidget::ManualControlWidget(QWidget *parent)
     
     m_lblSpeedVal = new QLabel("20%", this);
     m_lblSpeedVal->setFixedWidth(50);
+    // 移除默认灰色背景，改为透明或白色，hover 时再变色
     m_lblSpeedVal->setStyleSheet(
-        "QLabel { background: #ecf0f1; border-radius: 4px; padding: 4px; font-weight: bold; }"
-        "QLabel:hover { background: #dbdfe2; border: 1px solid #bdc3c7; }"
+        "QLabel { background: #FFFFFF; border: 1px solid #BDC3C7; border-radius: 4px; padding: 4px; font-weight: bold; color: #2C3E50; }" 
+        "QLabel:hover { background: #ECF0F1; border: 1px solid #95A5A6; }"
     );
     m_lblSpeedVal->setAlignment(Qt::AlignCenter);
     m_lblSpeedVal->setCursor(Qt::PointingHandCursor);
