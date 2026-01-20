@@ -14,6 +14,7 @@ class StatusWidget : public QGroupBox
 public:
     explicit StatusWidget(QWidget *parent = nullptr);
     void updateStatus(const MotionFeedback &fb);
+    void setDisconnected();
 
 private:
     void initChart();

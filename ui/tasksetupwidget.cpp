@@ -5,6 +5,7 @@
 #include <QHeaderView>
 #include <QDateTime>
 #include <QDebug>
+#include <QSqlTableModel>
 
 TaskSetupWidget::TaskSetupWidget(QWidget *parent)
     : QGroupBox("任务配置管理", parent)
@@ -40,10 +41,11 @@ TaskSetupWidget::TaskSetupWidget(QWidget *parent)
 
     // 2. 任务列表
     m_taskTable = new QTableWidget(this);
-    m_taskTable->setColumnCount(5);
-    m_taskTable->setHorizontalHeaderLabels({"任务ID", "创建时间", "操作员", "管道编号", "操作"});
+    m_taskTable->setColumnCount(6);
+    m_taskTable->setHorizontalHeaderLabels({"任务ID", "创建时间", "操作员", "管道编号", "当前状态", "操作"});
     m_taskTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_taskTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_taskTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_taskTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_taskTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     
@@ -70,6 +72,72 @@ QString TaskSetupWidget::tubeId() const
     return m_editTubeId->text().trimmed();
 }
 
+void TaskSetupWidget::loadHistory(QSqlTableModel *model)
+{
+    if (!model) return;
+
+    model->select();
+
+    m_taskTable->setRowCount(0);
+
+    const int idCol = model->fieldIndex("id");
+    const int timeCol = model->fieldIndex("start_time");
+    const int opCol = model->fieldIndex("operator_name");
+    const int tubeCol = model->fieldIndex("tube_id");
+
+    const int statusCol = model->fieldIndex("status");
+    const int rows = model->rowCount();
+    for (int r = 0; r < rows; ++r) {
+        const int taskId = model->data(model->index(r, idCol)).toInt();
+        const QDateTime startTime = model->data(model->index(r, timeCol)).toDateTime();
+        const QString opName = model->data(model->index(r, opCol)).toString();
+        const QString tube = model->data(model->index(r, tubeCol)).toString();
+        QString status = "stop";
+        if (statusCol != -1) {
+            status = model->data(model->index(r, statusCol)).toString();
+        } else if (taskId == m_activeTaskId) {
+            status = "create";
+        }
+
+        const int row = m_taskTable->rowCount();
+        m_taskTable->insertRow(row);
+
+        m_taskTable->setItem(row, 0, new QTableWidgetItem(QString::number(taskId)));
+        m_taskTable->setItem(row, 1, new QTableWidgetItem(startTime.isValid() ? startTime.toString("yyyy-MM-dd HH:mm:ss") : "-"));
+        m_taskTable->setItem(row, 2, new QTableWidgetItem(opName.isEmpty() ? "-" : opName));
+        m_taskTable->setItem(row, 3, new QTableWidgetItem(tube.isEmpty() ? "-" : tube));
+        m_taskTable->setItem(row, 4, new QTableWidgetItem(status));
+
+        QWidget *btnWidget = new QWidget();
+        QHBoxLayout *layout = new QHBoxLayout(btnWidget);
+        layout->setContentsMargins(5, 2, 5, 2);
+        layout->setSpacing(10);
+
+        QPushButton *btnStart = new QPushButton("开始");
+        QPushButton *btnEnd = new QPushButton("结束");
+        QPushButton *btnDelete = new QPushButton("删除");
+
+        btnStart->setObjectName("btnStart");
+        btnEnd->setObjectName("btnEnd");
+        btnDelete->setObjectName("btnDelete");
+
+        btnStart->setProperty("taskId", taskId);
+        btnEnd->setProperty("taskId", taskId);
+        btnDelete->setProperty("taskId", taskId);
+
+        connect(btnStart, &QPushButton::clicked, this, &TaskSetupWidget::onTableBtnClicked);
+        connect(btnEnd, &QPushButton::clicked, this, &TaskSetupWidget::onTableBtnClicked);
+        connect(btnDelete, &QPushButton::clicked, this, &TaskSetupWidget::onTableBtnClicked);
+
+        layout->addWidget(btnStart);
+        layout->addWidget(btnEnd);
+        layout->addWidget(btnDelete);
+        m_taskTable->setCellWidget(row, 5, btnWidget);
+    }
+
+    updateTaskState(m_activeTaskId);
+}
+
 void TaskSetupWidget::updateTaskState(int taskId, const QString& opName, const QString& tubeId)
 {
     m_activeTaskId = taskId;
@@ -94,6 +162,7 @@ void TaskSetupWidget::updateTaskState(int taskId, const QString& opName, const Q
             // 使用传入的参数填充，或者用"-"占位（如果未提供）
             m_taskTable->setItem(row, 2, new QTableWidgetItem(opName.isEmpty() ? "-" : opName)); 
             m_taskTable->setItem(row, 3, new QTableWidgetItem(tubeId.isEmpty() ? "-" : tubeId));
+            m_taskTable->setItem(row, 4, new QTableWidgetItem("create"));
             
             // 操作按钮
             QWidget *btnWidget = new QWidget();
@@ -103,60 +172,53 @@ void TaskSetupWidget::updateTaskState(int taskId, const QString& opName, const Q
             
             QPushButton *btnStart = new QPushButton("开始");
             QPushButton *btnEnd = new QPushButton("结束");
+            QPushButton *btnDelete = new QPushButton("删除");
+
+            btnStart->setObjectName("btnStart");
+            btnEnd->setObjectName("btnEnd");
+            btnDelete->setObjectName("btnDelete");
             
             // 存入 ID
             btnStart->setProperty("taskId", taskId);
             btnEnd->setProperty("taskId", taskId);
+            btnDelete->setProperty("taskId", taskId);
             
             connect(btnStart, &QPushButton::clicked, this, &TaskSetupWidget::onTableBtnClicked);
             connect(btnEnd, &QPushButton::clicked, this, &TaskSetupWidget::onTableBtnClicked);
+            connect(btnDelete, &QPushButton::clicked, this, &TaskSetupWidget::onTableBtnClicked);
             
             layout->addWidget(btnStart);
             layout->addWidget(btnEnd);
-            m_taskTable->setCellWidget(row, 4, btnWidget);
+            layout->addWidget(btnDelete);
+            m_taskTable->setCellWidget(row, 5, btnWidget);
         }
     }
     
     // 刷新所有按钮状态
     for (int i = 0; i < m_taskTable->rowCount(); ++i) {
-        QWidget *w = m_taskTable->cellWidget(i, 4);
+        QWidget *w = m_taskTable->cellWidget(i, 5);
         if (!w) continue;
         
-        QPushButton *btnStart = w->findChild<QPushButton*>(); // 第一个是开始
-        QPushButton *btnEnd = w->findChildren<QPushButton*>().last(); // 第二个是结束
+        QPushButton *btnStart = w->findChild<QPushButton*>("btnStart");
+        QPushButton *btnEnd = w->findChild<QPushButton*>("btnEnd");
+        QPushButton *btnDelete = w->findChild<QPushButton*>("btnDelete");
+        if (!btnDelete) continue;
         
         int rowTaskId = m_taskTable->item(i, 0)->text().toInt();
-        
-        if (m_activeTaskId == -1) {
-            // 没有活跃任务 -> 理论上所有未完成的任务都可开始（需配合数据库状态，这里简化处理）
-            // 如果是刚刚结束的任务，这里其实应该禁用开始，防止重复开始同一ID
-            // 但因为目前 taskId 是递增且唯一的，旧 ID 不会重用，所以禁用所有旧任务的“开始”比较安全
-            // 除非有“恢复任务”功能。这里假设：已结束的任务不能再开始。
-            btnStart->setEnabled(false); 
-            btnEnd->setEnabled(false);
+        QString status = m_taskTable->item(i, 4)->text();
+
+        if (status == "create") {
+            if (btnStart) btnStart->setVisible(true);
+            if (btnEnd) btnEnd->setVisible(false);
+            btnDelete->setVisible(true);
+        } else if (status == "starting") {
+            if (btnStart) btnStart->setVisible(false);
+            if (btnEnd) btnEnd->setVisible(true);
+            btnDelete->setVisible(true);
         } else {
-            if (rowTaskId == m_activeTaskId) {
-                // 是当前活跃任务
-                // 需求变更：创建任务后不默认执行，所以这里允许点击“开始”
-                // 如果是“正在运行中”（即已经点击了开始），则禁用开始按钮
-                
-                // 但这里 updateTaskState 通常是在任务创建后调用的
-                // 我们如何区分“新建但未开始”和“正在进行中”？
-                // 暂时利用按钮文本来判断，或者增加状态参数
-                
-                // 简单逻辑：如果是活跃任务，总是启用“开始”，点击后由 Controller 决定是否跳转
-                // 为了避免混淆，如果已经在进行中，Controller 应该不需要重新 create
-                // 这里我们假设：只要是 Active Task，就是已经 Created 的。
-                // 此时“开始”按钮的作用是“进入控制模式”
-                
-                btnStart->setEnabled(true);
-                btnStart->setText("开始"); 
-                btnEnd->setEnabled(true);
-            } else {
-                // 其他任务（旧任务） -> 禁用
-                btnStart->setEnabled(false);
-                btnEnd->setEnabled(false);
-            }
+            if (btnStart) btnStart->setVisible(false);
+            if (btnEnd) btnEnd->setVisible(false);
+            btnDelete->setVisible(true);
         }
     }
 }
@@ -177,8 +239,23 @@ void TaskSetupWidget::onTableBtnClicked()
     QString text = btn->text();
     
     if (text == "开始") {
+        for (int i = 0; i < m_taskTable->rowCount(); ++i) {
+            if (m_taskTable->item(i, 0)->text().toInt() == taskId) {
+                m_taskTable->item(i, 4)->setText("starting");
+                break;
+            }
+        }
         emit startTaskClicked(taskId);
     } else if (text == "结束") {
-        emit endTaskClicked();
+        for (int i = 0; i < m_taskTable->rowCount(); ++i) {
+            if (m_taskTable->item(i, 0)->text().toInt() == taskId) {
+                m_taskTable->item(i, 4)->setText("stop");
+                break;
+            }
+        }
+        emit endTaskClicked(taskId);
+    } else if (text == "删除") {
+        emit deleteTaskClicked(taskId);
     }
+    updateTaskState(m_activeTaskId);
 }

@@ -8,6 +8,8 @@
 #include <QLabel>
 #include <QTableWidget>
 
+class QSqlTableModel;
+
 /**
  * @brief 任务配置页面
  * 
@@ -26,6 +28,7 @@ public:
      * @param tubeId 可选：如果提供，将用于填充列表
      */
     void updateTaskState(int taskId, const QString& opName = "", const QString& tubeId = "");
+    void loadHistory(QSqlTableModel *model);
 
     QString operatorName() const;
     QString tubeId() const;
@@ -33,7 +36,8 @@ public:
 signals:
     void createTaskClicked(const QString &opName, const QString &tubeId);
     void startTaskClicked(int taskId);
-    void endTaskClicked();
+    void endTaskClicked(int taskId);
+    void deleteTaskClicked(int taskId);
 
 private:
     QLineEdit *m_editOperator;

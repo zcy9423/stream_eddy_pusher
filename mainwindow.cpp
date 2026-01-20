@@ -16,8 +16,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     // 1. 设置窗口基础属性
-    this->setWindowTitle("智能运动控制系统 v4.0");
-    this->resize(1700, 1000); // 宽屏长方形比例
+    this->setWindowTitle("蒸发器涡流检测推拔器控制软件");
+    this->resize(1600, 1000); // 宽屏长方形比例
     
     // 初始化配置 (确保目录存在)
     ConfigManager::instance().ensureDataDirExists();
@@ -42,7 +42,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_logModel->setTable("MotionLog");
     m_logModel->setSort(0, Qt::DescendingOrder); // 按时间倒序
     m_logModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
-    
+      
     m_taskModel = new QSqlTableModel(this, db);
     m_taskModel->setTable("DetectionTask");
     m_taskModel->setSort(0, Qt::DescendingOrder); // 最新任务在前
@@ -50,6 +50,9 @@ MainWindow::MainWindow(QWidget *parent)
     
     // 将模型设置给 LogWidget
     m_logWidget->setModels(m_taskModel, m_logModel);
+
+    m_taskModel->select();
+    m_taskSetupWidget->loadHistory(m_taskModel);
     
     // 定时刷新日志视图
     QTimer *viewTimer = new QTimer(this);
@@ -59,6 +62,14 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    if (m_logModel) {
+        delete m_logModel;
+        m_logModel = nullptr;
+    }
+    if (m_taskModel) {
+        delete m_taskModel;
+        m_taskModel = nullptr;
+    }
 }
 
 QIcon MainWindow::createIcon(const QString &text, const QColor &bg, const QColor &fg)
@@ -90,6 +101,7 @@ void MainWindow::initUI()
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
     centralWidget->setObjectName("CentralWidget");
+    centralWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     
     // 主布局：垂直 (Header + Body)
     QVBoxLayout *rootLayout = new QVBoxLayout(centralWidget);
@@ -155,6 +167,7 @@ void MainWindow::initUI()
     QHBoxLayout *bodyLayout = new QHBoxLayout(bodyWidget);
     bodyLayout->setContentsMargins(0, 0, 0, 0);
     bodyLayout->setSpacing(0);
+    bodyWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // --- 左侧 Dock 栏 (150px) ---
     QWidget *dockPanel = new QWidget(this);
@@ -270,6 +283,10 @@ void MainWindow::initUI()
 
     rootLayout->addWidget(footer);
 
+    rootLayout->setStretch(0, 0);
+    rootLayout->setStretch(1, 1);
+    rootLayout->setStretch(2, 0);
+
     // 默认选中第一项
     m_navList->setCurrentRow(0);
 }
@@ -279,6 +296,19 @@ void MainWindow::applyStyles()
     // 样式已在 main.cpp 中全局应用
 }
 
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+
+    if (auto *cw = centralWidget()) {
+        if (auto *layout = cw->layout()) {
+            QTimer::singleShot(0, this, [layout]() {
+                layout->activate();
+            });
+        }
+    }
+}
+
 void MainWindow::initLogic()
 {
     // --- 0. 导航栏事件 ---
@@ -286,25 +316,40 @@ void MainWindow::initLogic()
 
     // --- 1. 连接面板事件 ---
     connect(m_connWidget, &ConnectionWidget::connectClicked, this, &MainWindow::onConnectClicked);
+    // 新增取消连接事件
+    connect(m_connWidget, &ConnectionWidget::cancelConnection, this, [this](){
+        // 调用断开连接接口，该接口会中断 socket/serial 的操作
+        m_controller->requestDisconnect();
+    });
 
     // --- 2. 任务配置事件 ---
     connect(m_taskSetupWidget, &TaskSetupWidget::createTaskClicked, this, [this](QString op, QString tube){
         m_controller->startNewTask(op, tube);
     });
     connect(m_taskSetupWidget, &TaskSetupWidget::startTaskClicked, this, [this](int taskId){
-        // 这里需要 Controller 提供一个 resume 或 activateTask 的接口，
-        // 目前 Controller 只有 startNewTask，假设我们暂不处理"恢复旧任务"，
-        // 而是将这个信号视为 "切换到任务页面并允许控制"
-        // 实际上，如果任务已经创建，Controller 就持有 currentTaskId
-        if (taskId == m_controller->currentTaskId()) {
-             // 如果是当前任务，允许控制
-             m_manualWidget->setControlsEnabled(true);
-             m_autoTaskWidget->setEnabled(true);
-             QMessageBox::information(this, "提示", "任务已激活，请前往控制页面操作");
-        }
+        m_controller->activateTask(taskId);
+        m_controller->updateTaskStatus(taskId, "starting");
+        QMessageBox::information(this, "提示", "任务已激活，请前往控制页面操作");
     });
-    connect(m_taskSetupWidget, &TaskSetupWidget::endTaskClicked, this, [this](){
+    connect(m_taskSetupWidget, &TaskSetupWidget::endTaskClicked, this, [this](int taskId){
+        m_controller->updateTaskStatus(taskId, "stop");
         m_controller->endCurrentTask();
+    });
+    connect(m_taskSetupWidget, &TaskSetupWidget::deleteTaskClicked, this, [this](int taskId){
+        const auto reply = QMessageBox::question(
+            this,
+            "确认删除",
+            "确认删除此任务？",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No
+        );
+        if (reply != QMessageBox::Yes) {
+            return;
+        }
+        if (m_controller->deleteTask(taskId)) {
+            if (m_taskModel) m_taskModel->select();
+            m_taskSetupWidget->loadHistory(m_taskModel);
+        }
     });
 
     // --- 3. 手动控制事件 ---
@@ -333,6 +378,12 @@ void MainWindow::initLogic()
         m_isConnected = connected;
         m_connWidget->setConnectedState(connected);
         
+        if (!connected) {
+             if (m_statusWidget) m_statusWidget->setDisconnected();
+             if (m_statusManual) m_statusManual->setDisconnected();
+             if (m_statusAuto) m_statusAuto->setDisconnected();
+        }
+
         // 重新计算控制权限：必须同时满足 (已连接) 和 (有任务)
         bool canControl = m_isConnected && (m_controller->currentTaskId() != -1);
         m_manualWidget->setControlsEnabled(canControl);
@@ -353,7 +404,11 @@ void MainWindow::initLogic()
     
     // 任务创建通知
     connect(m_controller, &DeviceController::taskCreated, this, [this](int taskId, QString op, QString tube){
-        m_taskSetupWidget->updateTaskState(taskId, op, tube);
+        if (m_taskModel) m_taskModel->select();
+        if (m_taskSetupWidget) {
+            m_taskSetupWidget->loadHistory(m_taskModel);
+            m_taskSetupWidget->updateTaskState(taskId);
+        }
     });
 
     // 实时状态更新

@@ -11,9 +11,19 @@ DeviceController::DeviceController(QObject *parent) : QObject(parent)
 
 DeviceController::~DeviceController()
 {
+    if (m_commManager) {
+        if (m_workerThread.isRunning()) {
+            QMetaObject::invokeMethod(m_commManager, "closeConnection", Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(m_commManager, "deleteLater", Qt::BlockingQueuedConnection);
+            m_commManager = nullptr;
+        } else {
+            m_commManager->closeConnection();
+            delete m_commManager;
+            m_commManager = nullptr;
+        }
+    }
     m_workerThread.quit();
     m_workerThread.wait();
-    delete m_commManager; 
 }
 
 void DeviceController::init()
@@ -154,6 +164,15 @@ void DeviceController::onFeedbackReceived(MotionFeedback fb)
     }
 }
 
+void DeviceController::activateTask(int taskId)
+{
+    if (taskId == -1 || taskId == m_currentTaskId) {
+        return;
+    }
+    m_currentTaskId = taskId;
+    emit taskStateChanged(m_currentTaskId);
+}
+
 void DeviceController::startNewTask(const QString &operatorName, const QString &tubeId)
 {
     int newId = m_dataManager->createDetectionTask(operatorName, tubeId);
@@ -174,7 +193,34 @@ void DeviceController::endCurrentTask()
 {
     if (m_currentTaskId != -1) {
         LOG_INFO << "任务结束: ID=" << m_currentTaskId;
+        if (m_dataManager) {
+            m_dataManager->updateDetectionTaskStatus(m_currentTaskId, "stop");
+        }
         m_currentTaskId = -1;
         emit taskStateChanged(m_currentTaskId);
     }
+}
+
+bool DeviceController::updateTaskStatus(int taskId, const QString &status)
+{
+    if (!m_dataManager) return false;
+    return m_dataManager->updateDetectionTaskStatus(taskId, status);
+}
+
+bool DeviceController::deleteTask(int taskId)
+{
+    if (!m_dataManager) return false;
+
+    if (taskId == m_currentTaskId) {
+        m_taskManager->stopAll();
+        stopMotion();
+        m_currentTaskId = -1;
+        emit taskStateChanged(m_currentTaskId);
+    }
+
+    const bool ok = m_dataManager->deleteDetectionTask(taskId);
+    if (ok) {
+        LOG_INFO << "任务删除: ID=" << taskId;
+    }
+    return ok;
 }

@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include <QApplication>
+#include <QLoggingCategory>
 #include "communication/protocol.h"
 #include "ui/logindialog.h"
 
@@ -13,6 +14,8 @@ int main(int argc, char *argv[])
     // 创建 Qt 应用程序实例
     // argc 和 argv 是命令行参数
     QApplication a(argc, argv);
+
+    QLoggingCategory::setFilterRules("qt.core.qobject.connect.warning=false");
 
     // 注册自定义类型以支持跨线程 Signal/Slot 机制
     // MotionFeedback 和 ControlCommand 是我们在 protocol.h 中定义的结构体

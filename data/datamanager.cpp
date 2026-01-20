@@ -72,8 +72,37 @@ bool DataManager::initDatabase()
                               "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                               "start_time DATETIME, "
                               "operator_name TEXT, "
-                              "tube_id TEXT)");
+                              "tube_id TEXT, "
+                              "status TEXT DEFAULT 'create')");
     if (!success) LOG_ERR << "创建任务表失败：" << query.lastError().text();
+
+    bool hasStatus = false;
+    if (query.exec("PRAGMA table_info(DetectionTask)")) {
+        while (query.next()) {
+            if (query.value("name").toString() == "status") {
+                hasStatus = true;
+                break;
+            }
+        }
+    }
+
+    if (!hasStatus) {
+        QSqlQuery alterQuery(db);
+        if (!alterQuery.exec("ALTER TABLE DetectionTask ADD COLUMN status TEXT DEFAULT 'create'")) {
+            LOG_ERR << "新增状态列失败：" << alterQuery.lastError().text();
+        }
+    }
+
+    if (!query.exec("UPDATE DetectionTask SET status = 'stop' "
+                    "WHERE (status IS NULL OR status = '') "
+                    "AND id IN (SELECT DISTINCT task_id FROM MotionLog WHERE task_id IS NOT NULL)")) {
+        LOG_ERR << "修正任务状态失败：" << query.lastError().text();
+    }
+    if (!query.exec("UPDATE DetectionTask SET status = 'create' "
+                    "WHERE (status IS NULL OR status = '') "
+                    "AND id NOT IN (SELECT DISTINCT task_id FROM MotionLog WHERE task_id IS NOT NULL)")) {
+        LOG_ERR << "修正任务状态失败：" << query.lastError().text();
+    }
 
     // 表2: 运动日志表 - 存储高频的运动状态数据
     // 注意：在实际高频写入场景中，可能需要考虑分表或定期归档
@@ -179,14 +208,60 @@ int DataManager::createDetectionTask(const QString &operatorName, const QString 
     QSqlDatabase db = QSqlDatabase::database(connName);
     QSqlQuery query(db);
     
-    query.prepare("INSERT INTO DetectionTask (start_time, operator_name, tube_id) "
-                  "VALUES (:time, :op, :tube)");
+    query.prepare("INSERT INTO DetectionTask (start_time, operator_name, tube_id, status) "
+                  "VALUES (:time, :op, :tube, :status)");
     query.bindValue(":time", QDateTime::currentDateTime());
     query.bindValue(":op", operatorName);
     query.bindValue(":tube", tubeId);
+    query.bindValue(":status", "create");
     
     if (query.exec()) {
         return query.lastInsertId().toInt();
     }
     return -1;
+}
+
+bool DataManager::updateDetectionTaskStatus(int taskId, const QString &status)
+{
+    if (taskId <= 0) return false;
+
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return false;
+
+    QSqlQuery query(db);
+    query.prepare("UPDATE DetectionTask SET status = :status WHERE id = :tid");
+    query.bindValue(":status", status);
+    query.bindValue(":tid", taskId);
+    if (!query.exec()) {
+        LOG_ERR << "更新任务状态失败:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool DataManager::deleteDetectionTask(int taskId)
+{
+    if (taskId <= 0) return false;
+
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return false;
+
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM MotionLog WHERE task_id = :tid");
+    query.bindValue(":tid", taskId);
+    if (!query.exec()) {
+        LOG_ERR << "删除 MotionLog 失败:" << query.lastError().text();
+        return false;
+    }
+
+    query.prepare("DELETE FROM DetectionTask WHERE id = :tid");
+    query.bindValue(":tid", taskId);
+    if (!query.exec()) {
+        LOG_ERR << "删除 DetectionTask 失败:" << query.lastError().text();
+        return false;
+    }
+
+    return true;
 }

@@ -9,7 +9,7 @@
 LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle("用户登录");
-    setFixedSize(300, 200);
+    setFixedSize(360, 220);
     
     // 去掉问号
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
@@ -29,11 +29,15 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
     
     m_userEdit = new QLineEdit();
     m_userEdit->setPlaceholderText("用户名");
+    m_userEdit->setMinimumWidth(200);
+    m_userEdit->setMinimumHeight(28);
     // m_userEdit->setText("admin"); // Removed default for security
 
     m_passEdit = new QLineEdit();
     m_passEdit->setPlaceholderText("密码");
     m_passEdit->setEchoMode(QLineEdit::Password);
+    m_passEdit->setMinimumWidth(200);
+    m_passEdit->setMinimumHeight(28);
     // m_passEdit->setText("123456"); // Removed default for security
 
     formLayout->addWidget(new QLabel("账号:"), 0, 0);

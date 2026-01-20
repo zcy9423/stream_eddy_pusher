@@ -74,8 +74,11 @@ public slots:
     
     // 获取/设置当前任务ID
     int currentTaskId() const { return m_currentTaskId; }
+    void activateTask(int taskId);
     void startNewTask(const QString &operatorName, const QString &tubeId);
     void endCurrentTask();
+    bool deleteTask(int taskId);
+    bool updateTaskStatus(int taskId, const QString &status);
 
 signals:
     void taskCreated(int taskId, const QString& op, const QString& tube);

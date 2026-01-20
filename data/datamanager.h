@@ -60,6 +60,20 @@ public slots:
     int createDetectionTask(const QString &operatorName, const QString &tubeId);
 
     /**
+     * @brief 删除检测任务
+     * @param taskId 任务ID
+     * @return true 成功, false 失败
+     */
+    bool deleteDetectionTask(int taskId);
+
+    /**
+     * @brief 更新任务状态
+     * @param taskId 任务ID
+     * @param status 状态 (create/starting/stop)
+     */
+    bool updateDetectionTaskStatus(int taskId, const QString &status);
+
+    /**
      * @brief 自动清理旧数据
      * @param daysToKeep 保留最近多少天的数据 (默认30天)
      */

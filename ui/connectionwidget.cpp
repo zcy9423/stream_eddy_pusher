@@ -60,6 +60,8 @@ ConnectionWidget::ConnectionWidget(QWidget *parent) : QWidget(parent)
     modeGroup->setSpacing(5);
     QLabel *lblMode = new QLabel("连接模式", this);
     lblMode->setStyleSheet("color: #7F8C8D; font-size: 12px; font-weight: bold;");
+    lblMode->setFixedHeight(24); // 统一高度以对齐
+    lblMode->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
     
     m_modeCombo = new QComboBox(this);
     m_modeCombo->addItem("串口通信 (Serial)");
@@ -76,7 +78,7 @@ ConnectionWidget::ConnectionWidget(QWidget *parent) : QWidget(parent)
     // 2.2 动态参数区域 (Stack)
     // 为了让 Stack 中的 Widget 也能水平排列，我们需要在 Stack 的子 Widget 里使用 HBoxLayout
     m_stack = new QStackedWidget(this);
-    m_stack->setFixedHeight(55); // 高度足够容纳 label + input
+    m_stack->setFixedHeight(65);
     m_stack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
     // --- Page 1: Serial ---
@@ -86,26 +88,48 @@ ConnectionWidget::ConnectionWidget(QWidget *parent) : QWidget(parent)
     serialLayout->setSpacing(30); // 参数间距
     
     // 端口
-    QVBoxLayout *portGroup = new QVBoxLayout();
+    QWidget *portContainer = new QWidget(this);
+    portContainer->setFixedWidth(140);
+    QVBoxLayout *portGroup = new QVBoxLayout(portContainer);
+    portGroup->setContentsMargins(0, 0, 0, 0);
     portGroup->setSpacing(5);
+    
+    // 端口标题栏 (包含刷新按钮)
+    QHBoxLayout *portHeader = new QHBoxLayout();
+    portHeader->setContentsMargins(0, 0, 0, 0); // 消除内边距，紧凑布局
     QLabel *lblPort = new QLabel("端口 (Port)", this);
     lblPort->setStyleSheet("color: #7F8C8D; font-size: 12px; font-weight: bold;");
+    lblPort->setFixedHeight(24); // 统一高度
+    lblPort->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
+    
+    QPushButton *btnRefresh = new QPushButton("刷新", this);
+    btnRefresh->setFixedSize(40, 20); // 缩小尺寸，视觉上更精致
+    btnRefresh->setCursor(Qt::PointingHandCursor);
+    btnRefresh->setToolTip("刷新串口列表");
+    btnRefresh->setStyleSheet("QPushButton { border: 1px solid #BDC3C7; border-radius: 4px; background: #FFFFFF; color: #3498DB; font-size: 12px; font-weight: bold; padding: 0px; } QPushButton:hover { background: #ECF0F1; }");
+    connect(btnRefresh, &QPushButton::clicked, this, &ConnectionWidget::refreshPorts);
+    
+    portHeader->addWidget(lblPort);
+    portHeader->addStretch();
+    portHeader->addWidget(btnRefresh, 0, Qt::AlignBottom); // 底部对齐，与文字基线接近
+    
     m_portCombo = new QComboBox(this);
-    m_portCombo->setMinimumWidth(120);
+    m_portCombo->setFixedWidth(140);
     m_portCombo->setFixedHeight(32);
-    const auto infos = QSerialPortInfo::availablePorts();
-    for (const QSerialPortInfo &info : infos) {
-        m_portCombo->addItem(info.portName());
-    }
-    portGroup->addWidget(lblPort);
+    
+    refreshPorts(); // 初始加载
+    
+    portGroup->addLayout(portHeader);
     portGroup->addWidget(m_portCombo);
-    serialLayout->addLayout(portGroup);
+    serialLayout->addWidget(portContainer);
 
     // 波特率
     QVBoxLayout *baudGroup = new QVBoxLayout();
     baudGroup->setSpacing(5);
     QLabel *lblBaud = new QLabel("波特率 (Baud)", this);
     lblBaud->setStyleSheet("color: #7F8C8D; font-size: 12px; font-weight: bold;");
+    lblBaud->setFixedHeight(24); // 统一高度
+    lblBaud->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
     m_baudCombo = new QComboBox(this);
     m_baudCombo->setMinimumWidth(100);
     m_baudCombo->setFixedHeight(32);
@@ -186,6 +210,15 @@ ConnectionWidget::ConnectionWidget(QWidget *parent) : QWidget(parent)
     m_pageTcp = pageTcp;
 }
 
+void ConnectionWidget::refreshPorts()
+{
+    m_portCombo->clear();
+    const auto infos = QSerialPortInfo::availablePorts();
+    for (const QSerialPortInfo &info : infos) {
+        m_portCombo->addItem(info.portName());
+    }
+}
+
 void ConnectionWidget::onModeChanged(int index)
 {
     if (index == 0) m_stack->setCurrentIndex(0);
@@ -195,9 +228,22 @@ void ConnectionWidget::onModeChanged(int index)
 
 void ConnectionWidget::onConnectBtnClicked()
 {
-    // 如果已经在连接中(按钮被禁用)，直接返回，防止重复点击
-    if (!m_btnConnect->isEnabled()) return;
+    // 1. 如果已连接，点击则是断开连接
+    if (m_isConnected) {
+        // 这里参数其实不重要，因为 MainWindow 会判断 m_isConnected 并调用 requestDisconnect
+        emit connectClicked(0, "", 0); 
+        return;
+    }
 
+    // 2. 如果正在连接中，点击则是取消连接
+    if (m_isConnecting) {
+        m_btnConnect->setText("取消中...");
+        m_btnConnect->setEnabled(false); // 暂时禁用，等待状态回调
+        emit cancelConnection();
+        return;
+    }
+
+    // 3. 如果未连接且未在连接中，点击则是发起连接
     int type = m_modeCombo->currentIndex(); // 0=Serial, 1=Tcp, 2=Sim
     QString addr;
     int portOrBaud = 0;
@@ -210,16 +256,12 @@ void ConnectionWidget::onConnectBtnClicked()
         portOrBaud = m_tcpPortEdit->text().toInt();
     }
     
-    // 如果当前是未连接状态，点击后进入"连接中"状态
-    if (!m_isConnected) {
-        m_btnConnect->setText("连接中...");
-        m_btnConnect->setEnabled(false); // 禁用按钮防止重复点击
-        m_modeCombo->setEnabled(false);
-        m_stack->setEnabled(false);
-    } else {
-        // 如果是已连接状态，点击则是断开连接，也暂时禁用按钮直到状态改变
-        m_btnConnect->setEnabled(false);
-    }
+    // 进入"连接中"状态
+    m_isConnecting = true;
+    m_btnConnect->setText("取消连接"); // 提示用户可以取消
+    m_btnConnect->setEnabled(true);   // 保持启用，允许点击取消
+    m_modeCombo->setEnabled(false);
+    m_stack->setEnabled(false);
     
     emit connectClicked(type, addr, portOrBaud);
 }
@@ -227,6 +269,7 @@ void ConnectionWidget::onConnectBtnClicked()
 void ConnectionWidget::setConnectedState(bool connected)
 {
     m_isConnected = connected;
+    m_isConnecting = false; // 无论连接成功还是断开，都不再是连接中状态
     
     // 无论连接成功还是失败，都需要重新启用按钮
     m_btnConnect->setEnabled(true);

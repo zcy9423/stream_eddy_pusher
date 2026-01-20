@@ -77,6 +77,9 @@ private slots:
     // 打开用户管理界面
     void onManageUsersClicked();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private:
     /**
      * @brief 初始化用户界面

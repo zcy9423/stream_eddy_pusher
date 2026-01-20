@@ -21,12 +21,15 @@ public:
 signals:
     // type: 0=Serial, 1=Tcp, 2=Sim
     void connectClicked(int type, const QString &addr, int portOrBaud);
+    void cancelConnection(); // 新增取消信号
 
 private slots:
     void onModeChanged(int index);
     void onConnectBtnClicked();
 
 private:
+    void refreshPorts(); // 刷新串口列表
+
     QComboBox *m_modeCombo;
     QStackedWidget *m_stack;
     QPushButton *m_btnConnect;
@@ -42,6 +45,7 @@ private:
     QLineEdit *m_tcpPortEdit;
 
     bool m_isConnected = false;
+    bool m_isConnecting = false; // 新增连接中状态标志
 };
 
 #endif // CONNECTIONWIDGET_H

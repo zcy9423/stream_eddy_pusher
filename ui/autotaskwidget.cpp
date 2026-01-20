@@ -82,10 +82,10 @@ void AutoTaskWidget::setupSimpleTab(QWidget *tab)
         paramGrid->addWidget(widget, row, col + 1);
     };
 
-    m_spinMinPos = new QDoubleSpinBox(); m_spinMinPos->setRange(0, 1000); m_spinMinPos->setSuffix(" mm");
-    m_spinMaxPos = new QDoubleSpinBox(); m_spinMaxPos->setRange(0, 1000); m_spinMaxPos->setSuffix(" mm"); m_spinMaxPos->setValue(100.0);
-    m_spinAutoSpeed = new QDoubleSpinBox(); m_spinAutoSpeed->setRange(0, 100); m_spinAutoSpeed->setSuffix(" %"); m_spinAutoSpeed->setValue(20.0);
-    m_spinCycles = new QSpinBox(); m_spinCycles->setRange(0, 9999); m_spinCycles->setSuffix(" 次"); m_spinCycles->setValue(5);
+    m_spinMinPos = new QDoubleSpinBox(); m_spinMinPos->setRange(0, 1000); m_spinMinPos->setSuffix(" mm"); m_spinMinPos->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_spinMaxPos = new QDoubleSpinBox(); m_spinMaxPos->setRange(0, 1000); m_spinMaxPos->setSuffix(" mm"); m_spinMaxPos->setValue(100.0); m_spinMaxPos->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_spinAutoSpeed = new QDoubleSpinBox(); m_spinAutoSpeed->setRange(0, 100); m_spinAutoSpeed->setSuffix(" %"); m_spinAutoSpeed->setValue(20.0); m_spinAutoSpeed->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_spinCycles = new QSpinBox(); m_spinCycles->setRange(0, 9999); m_spinCycles->setValue(5); m_spinCycles->setButtonSymbols(QAbstractSpinBox::NoButtons);
 
     addParam("起点 (Min):", m_spinMinPos, 0, 0);
     addParam("终点 (Max):", m_spinMaxPos, 0, 2);
@@ -130,8 +130,8 @@ void AutoTaskWidget::setupAdvancedTab(QWidget *tab)
     m_comboStepType->addItem("等待 (Wait)", static_cast<int>(TaskManager::StepType::Wait));
     m_comboStepType->addItem("设速度 (SetSpeed)", static_cast<int>(TaskManager::StepType::SetSpeed));
     
-    m_spinStepParam1 = new QDoubleSpinBox(); m_spinStepParam1->setRange(0, 99999);
-    m_spinStepParam2 = new QDoubleSpinBox(); m_spinStepParam2->setRange(0, 99999);
+    m_spinStepParam1 = new QDoubleSpinBox(); m_spinStepParam1->setRange(0, 99999); m_spinStepParam1->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_spinStepParam2 = new QDoubleSpinBox(); m_spinStepParam2->setRange(0, 99999); m_spinStepParam2->setButtonSymbols(QAbstractSpinBox::NoButtons);
     
     QPushButton *btnAdd = new QPushButton("添加步骤");
     connect(btnAdd, &QPushButton::clicked, this, &AutoTaskWidget::onAddStep);
@@ -161,7 +161,7 @@ void AutoTaskWidget::setupAdvancedTab(QWidget *tab)
     m_spinSeqCycles = new QSpinBox();
     m_spinSeqCycles->setRange(1, 9999);
     m_spinSeqCycles->setValue(1);
-    m_spinSeqCycles->setSuffix(" 次");
+    m_spinSeqCycles->setButtonSymbols(QAbstractSpinBox::NoButtons);
     
     editLayout->addWidget(new QLabel("执行循环:"));
     editLayout->addWidget(m_spinSeqCycles);

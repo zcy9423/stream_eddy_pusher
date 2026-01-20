@@ -1,6 +1,7 @@
 #include "communicationmanager.h"
 #include "../utils/logger.h"
 #include <QHostAddress>
+#include <QCoreApplication>
 
 CommunicationManager::CommunicationManager(QObject *parent) : QObject(parent)
 {
@@ -8,7 +9,7 @@ CommunicationManager::CommunicationManager(QObject *parent) : QObject(parent)
 
 CommunicationManager::~CommunicationManager()
 {
-    closeConnection();
+    cleanup();
 }
 
 void CommunicationManager::cleanup()
@@ -91,9 +92,15 @@ void CommunicationManager::openConnection(int type, const QString &address, int 
 
 void CommunicationManager::closeConnection()
 {
+    if (!m_isConnected && !m_serial && !m_tcpSocket && !m_simTimer) {
+        return;
+    }
+    const bool wasConnected = m_isConnected;
     cleanup();
     LOG_INFO << "连接已关闭";
-    emit connectionOpened(false);
+    if (wasConnected && !QCoreApplication::closingDown()) {
+        emit connectionOpened(false);
+    }
 }
 
 void CommunicationManager::handleTcpConnected()

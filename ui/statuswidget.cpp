@@ -285,3 +285,21 @@ void StatusWidget::updateStatus(const MotionFeedback &fb)
         }
     }
 }
+
+void StatusWidget::setDisconnected()
+{
+    m_lblStatus->setText("未连接");
+    
+    QString badgeStyle = "background-color: transparent; color: #7F8C8D;";
+    m_lblStatus->setStyleSheet(QString("QLabel { %1 border-radius: 4px; font-size: 12px; font-weight: bold; }").arg(badgeStyle));
+
+    m_lblPos->setText("0.00");
+    m_lblSpeed->setText("0.0");
+
+    QString grayStyle = "background-color: #BDC3C7; border-radius: 5px;";
+    m_ledLeftLimit->setStyleSheet(grayStyle);
+    m_ledRightLimit->setStyleSheet(grayStyle);
+    m_ledEmergency->setStyleSheet(grayStyle);
+
+    m_isRecording = false;
+}
