@@ -34,7 +34,8 @@ public:
         Paused,         ///< 暂停状态
         Stopping,       ///< 正在停止
         Fault,          ///< 故障状态
-        StepExecution   ///< 脚本/配方执行中
+        StepExecution,  ///< 脚本/配方执行中
+        Resetting       ///< 重置中（回到初始位置）
     };
     Q_ENUM(State)
 
@@ -96,6 +97,12 @@ public:
     Q_INVOKABLE void stopAll();
 
     /**
+     * @brief 重置任务
+     * 只能在暂停状态下调用，重置任务状态并回到初始位置
+     */
+    Q_INVOKABLE void resetTask();
+
+    /**
      * @brief 设置到位判断的容差值
      * @param tol 容差 (mm)，默认 0.2
      */
@@ -131,6 +138,8 @@ signals:
     void progressChanged(int completedCycles, int targetCycles); // targetCycles <=0 表示无限
     void message(const QString& text);
     void fault(const QString& reason);
+    void taskCompleted(); // 任务完成信号
+    void taskFailed(const QString& reason); // 任务失败信号
 
 public slots:
     /**
@@ -191,6 +200,7 @@ private:
 
     double  m_position {0.0};
     double  m_tol {0.2};          // 到位容差
+    double  m_resetTargetPos {0.0}; // 重置目标位置
     
     // 超时检测相关
     QTimer  m_watchdog;

@@ -30,6 +30,8 @@ set(PROJECT_SOURCES
     ui/autotaskwidget.h
     ui/taskconfigdialog.cpp
     ui/taskconfigdialog.h
+    ui/taskconfigwidget.cpp
+    ui/taskconfigwidget.h
     ui/tasksetupwidget.cpp
     ui/tasksetupwidget.h
     ui/settingsdialog.cpp
@@ -54,6 +56,14 @@ set(PROJECT_SOURCES
     data/datamanager.cpp
     data/datamanager.h
     utils/logger.h
+    utils/windowinitialization.cpp
+    utils/windowinitialization.h
+    utils/geometryvalidator.cpp
+    utils/geometryvalidator.h
+    utils/layoutactivation.cpp
+    utils/layoutactivation.h
+    utils/displaycontext.cpp
+    utils/displaycontext.h
 )
 
 # 定义可执行文件

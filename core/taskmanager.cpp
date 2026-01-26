@@ -33,7 +33,8 @@ bool TaskManager::isRunning() const
     return m_state == State::AutoForward
         || m_state == State::AutoBackward
         || m_state == State::Stopping
-        || m_state == State::StepExecution;
+        || m_state == State::StepExecution
+        || m_state == State::Resetting;
 }
 
 void TaskManager::setPositionTolerance(double tol)
@@ -217,6 +218,58 @@ void TaskManager::stopAll()
 }
 
 /**
+ * @brief 重置任务
+ * 只能在暂停状态下调用，重置任务状态并回到初始位置
+ */
+void TaskManager::resetTask()
+{
+    if (m_state != State::Paused) {
+        emit message("只能在暂停状态下重置任务");
+        return;
+    }
+    
+    // 进入重置状态
+    setState(State::Resetting);
+    
+    // 重置进度
+    m_completedCycles = 0;
+    emit progressChanged(m_completedCycles, m_targetCycles);
+    
+    // 智能回到初始位置
+    // 对于往返扫描任务，回到最小位置
+    // 对于脚本序列任务，回到0位置
+    if (!m_sequenceSteps.isEmpty()) {
+        // 脚本序列：回到0位置
+        m_resetTargetPos = 0.0;
+    } else {
+        // 往返扫描：回到最小位置
+        m_resetTargetPos = m_minPos;
+    }
+    
+    // 检查是否已经在目标位置
+    if (reached(m_position, m_resetTargetPos)) {
+        // 已经在目标位置，直接完成重置
+        setState(State::Idle);
+        m_watchdog.stop();
+        emit message("任务已重置完成。");
+        return;
+    }
+    
+    // 启动看门狗
+    m_watchdog.start();
+    m_motionStartMs = nowMs();
+    
+    // 根据当前位置决定移动方向
+    if (m_position > m_resetTargetPos) {
+        emit requestMoveBackward(20.0); // 使用较慢的速度
+        emit message(QString("任务重置中，正在回到初始位置 %1mm...").arg(m_resetTargetPos));
+    } else {
+        emit requestMoveForward(20.0);
+        emit message(QString("任务重置中，正在回到初始位置 %1mm...").arg(m_resetTargetPos));
+    }
+}
+
+/**
  * @brief 核心逻辑：位置更新回调
  * 
  * 每次收到位置更新时，检查是否到达目标边界。
@@ -246,11 +299,20 @@ void TaskManager::onPositionUpdated(double position)
                 setState(State::Idle);
                 m_watchdog.stop();
                 emit message("自动扫描已完成。");
+                emit taskCompleted(); // 通知任务完成
                 return;
             }
 
             // 继续下一次：向 max
             startMovingToMax();
+        }
+    } else if (m_state == State::Resetting) {
+        // 检查是否到达重置目标位置
+        if (reached(m_position, m_resetTargetPos)) {
+            emit requestStop();
+            setState(State::Idle);
+            m_watchdog.stop();
+            emit message("任务重置完成。");
         }
     }
 }
@@ -285,7 +347,8 @@ void TaskManager::onWatchdogTick()
         return;
     }
 
-    if (m_state != State::AutoForward && m_state != State::AutoBackward && m_state != State::StepExecution) {
+    if (m_state != State::AutoForward && m_state != State::AutoBackward && 
+        m_state != State::StepExecution && m_state != State::Resetting) {
         return;
     }
     // 如果还没记录开始时间，现在记录
@@ -303,6 +366,7 @@ void TaskManager::onWatchdogTick()
         if (m_state == State::AutoForward) target = "max";
         else if (m_state == State::AutoBackward) target = "min";
         else if (m_state == State::StepExecution) target = QString("Step %1 Target").arg(m_currentStepIndex);
+        else if (m_state == State::Resetting) target = QString("Reset Target %1mm").arg(m_resetTargetPos);
 
         enterFault(QString("运动超时：向%1移动已超过%2ms，当前位置=%3mm")
                        .arg(target)
@@ -328,6 +392,7 @@ void TaskManager::enterFault(const QString& reason)
     emit requestStop(); // 尝试停止硬件
     emit fault(reason);
     emit message(QString("FAULT: %1").arg(reason));
+    emit taskFailed(reason); // 通知任务失败
 }
 
 /**
@@ -376,6 +441,7 @@ void TaskManager::executeNextStep()
             setState(State::Idle);
             m_watchdog.stop();
             emit message("高级任务序列已完成。");
+            emit taskCompleted(); // 通知任务完成
             return;
         }
 
@@ -395,15 +461,36 @@ void TaskManager::executeStep(const TaskStep &step)
     switch (step.type) {
     case StepType::MoveTo: {
         double target = step.param1;
-        double speed = step.param2 > 0 ? step.param2 : m_speed; 
+        double speed = step.param2 > 0 ? step.param2 : 20.0; // 默认速度 20.0，防止过慢
+        
+        // 检查目标位置是否超出限位
+        double maxPos = ConfigManager::instance().maxPosition();
+        if (target > maxPos) {
+            enterFault(QString("步骤 %1: 目标位置 %2mm 超过右限位 %3mm").arg(m_currentStepIndex).arg(target).arg(maxPos));
+            return;
+        }
+        if (target < 0.0) {
+            enterFault(QString("步骤 %1: 目标位置 %2mm 超过左限位 0mm").arg(m_currentStepIndex).arg(target));
+            return;
+        }
         
         m_currentStepTargetPos = target;
         m_motionStartMs = nowMs(); // 重置超时
         
+        // 预判：如果已经到位，直接进入下一步，避免原地抖动
+        if (reached(m_position, target)) {
+             emit message(QString("步骤 %1: 已在目标位置 %2，跳过移动").arg(m_currentStepIndex).arg(target));
+             // 使用 QTimer::singleShot 异步调用下一 步，避免递归过深
+             QTimer::singleShot(0, this, [this](){ executeNextStep(); });
+             break;
+        }
+
         // 简单判断方向
         if (target > m_position) {
+             emit message(QString("步骤 %1: 向前移动到 %2mm，速度 %3%").arg(m_currentStepIndex).arg(target).arg(speed));
              emit requestMoveForward(speed);
         } else {
+             emit message(QString("步骤 %1: 向后移动到 %2mm，速度 %3%").arg(m_currentStepIndex).arg(target).arg(speed));
              emit requestMoveBackward(speed);
         }
         break;
@@ -413,6 +500,7 @@ void TaskManager::executeStep(const TaskStep &step)
         m_waitDurationMs = ms;
         m_waitStartTime = nowMs();
         m_isStepWaiting = true;
+        emit message(QString("步骤 %1: 等待 %2ms").arg(m_currentStepIndex).arg(ms));
         emit requestStop(); // 等待时停止运动
         break;
     }
@@ -420,6 +508,7 @@ void TaskManager::executeStep(const TaskStep &step)
         double newSpeed = step.param1;
         if (newSpeed > 0) {
             m_speed = newSpeed;
+            emit message(QString("步骤 %1: 设置速度为 %2%").arg(m_currentStepIndex).arg(newSpeed));
         }
         executeNextStep(); // 立即执行下一步
         break;

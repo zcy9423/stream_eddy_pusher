@@ -25,6 +25,7 @@ signals:
     void startSequenceClicked(const QList<TaskManager::TaskStep> &steps, int cycles);
     void pauseTaskClicked();
     void resumeTaskClicked();
+    void resetTaskClicked();
     void stopTaskClicked();
 
 private slots:
@@ -57,6 +58,7 @@ private:
     QLabel *m_lblCycleCount;
     QPushButton *m_btnStartTask;
     QPushButton *m_btnPauseTask;
+    QPushButton *m_btnResetTask;
     
     bool m_isPaused = false;
 };

@@ -65,6 +65,7 @@ public slots:
     void startAutoScan(double min, double max, double speed, int cycles);
     void pauseAutoScan();
     void resumeAutoScan();
+    void resetAutoScan();
     void stopAutoScan();
     // 暴露 TaskManager 供外部通过信号槽连接
     TaskManager* taskManager() const { return m_taskManager; }

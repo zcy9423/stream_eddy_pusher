@@ -1,5 +1,6 @@
 #include "communicationmanager.h"
 #include "../utils/logger.h"
+#include "../core/configmanager.h"
 #include <QHostAddress>
 #include <QCoreApplication>
 
@@ -240,9 +241,10 @@ void CommunicationManager::handleSimTimeout()
         m_simState.speed_mm_s = 0.0;
     }
     
-    // 模拟限位
-    if (m_simState.position_mm >= 1000.0) {
-        m_simState.position_mm = 1000.0;
+    // 模拟限位 - 使用配置中的实际限位值
+    double maxPos = ConfigManager::instance().maxPosition();
+    if (m_simState.position_mm >= maxPos) {
+        m_simState.position_mm = maxPos;
         m_simState.rightLimit = true;
         // m_simState.status = DeviceStatus::Idle; // 碰到限位停止？
     } else {

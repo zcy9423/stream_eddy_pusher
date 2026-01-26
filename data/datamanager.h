@@ -74,6 +74,37 @@ public slots:
     bool updateDetectionTaskStatus(int taskId, const QString &status);
 
     /**
+     * @brief 更新任务配置
+     * @param taskId 任务ID
+     * @param taskType 任务类型 (manual/auto_scan/sequence)
+     * @param taskConfig 任务配置JSON字符串
+     */
+    bool updateTaskConfig(int taskId, const QString &taskType, const QString &taskConfig);
+
+    /**
+     * @brief 获取任务配置
+     * @param taskId 任务ID
+     * @param taskType 输出参数：任务类型
+     * @param taskConfig 输出参数：任务配置JSON
+     * @return true 成功, false 失败
+     */
+    bool getTaskConfig(int taskId, QString &taskType, QString &taskConfig);
+
+    /**
+     * @brief 更新任务执行结果
+     * @param taskId 任务ID
+     * @param executionResult 执行结果JSON字符串
+     */
+    bool updateTaskExecutionResult(int taskId, const QString &executionResult);
+
+    /**
+     * @brief 获取任务执行结果
+     * @param taskId 任务ID
+     * @return 执行结果JSON字符串
+     */
+    QString getTaskExecutionResult(int taskId);
+
+    /**
      * @brief 自动清理旧数据
      * @param daysToKeep 保留最近多少天的数据 (默认30天)
      */

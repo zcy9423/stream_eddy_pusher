@@ -45,12 +45,20 @@ AutoTaskWidget::AutoTaskWidget(QWidget *parent) : QGroupBox("自动任务控制"
 
     mainLayout->addLayout(progressLayout);
     
-    // 公共控制按钮 (暂停/恢复)
-    // 注意：开始按钮分别在各自的 Tab 中，但暂停是全局的
+    // 公共控制按钮 (暂停/恢复/重置)
+    QHBoxLayout *controlLayout = new QHBoxLayout();
+    
+    // 注意：开始按钮分别在各自的 Tab 中，但暂停和重置是全局的
     m_btnPauseTask = new QPushButton("暂停任务");
     m_btnPauseTask->setCursor(Qt::PointingHandCursor);
     m_btnPauseTask->setMinimumHeight(40);
     m_btnPauseTask->setEnabled(false);
+    
+    m_btnResetTask = new QPushButton("重置任务");
+    m_btnResetTask->setCursor(Qt::PointingHandCursor);
+    m_btnResetTask->setMinimumHeight(40);
+    m_btnResetTask->setEnabled(false);
+    m_btnResetTask->setStyleSheet("QPushButton { background-color: #F39C12; color: white; border: none; } QPushButton:hover { background-color: #E67E22; } QPushButton:disabled { background-color: #F7DC6F; }");
     
     connect(m_btnPauseTask, &QPushButton::clicked, this, [this](){
         if (m_isPaused) {
@@ -59,8 +67,14 @@ AutoTaskWidget::AutoTaskWidget(QWidget *parent) : QGroupBox("自动任务控制"
             emit pauseTaskClicked();
         }
     });
+    
+    connect(m_btnResetTask, &QPushButton::clicked, this, [this](){
+        emit resetTaskClicked();
+    });
 
-    mainLayout->addWidget(m_btnPauseTask);
+    controlLayout->addWidget(m_btnPauseTask);
+    controlLayout->addWidget(m_btnResetTask);
+    mainLayout->addLayout(controlLayout);
 
     // 默认禁用，等待连接成功且任务创建后启用
     this->setEnabled(false);
@@ -72,25 +86,48 @@ void AutoTaskWidget::setupSimpleTab(QWidget *tab)
     layout->setSpacing(15);
     
     QGridLayout *paramGrid = new QGridLayout();
-    paramGrid->setHorizontalSpacing(20);
-    paramGrid->setVerticalSpacing(10);
+    paramGrid->setVerticalSpacing(16);
+    paramGrid->setHorizontalSpacing(4); // 标签和输入框之间的紧凑间距
 
-    auto addParam = [&](QString label, QWidget* widget, int row, int col) {
-        QLabel *lbl = new QLabel(label);
-        lbl->setStyleSheet("color: #7F8C8D; font-weight: bold;"); // 适配亮色
-        paramGrid->addWidget(lbl, row, col);
-        paramGrid->addWidget(widget, row, col + 1);
+    auto configLabel = [](QLabel *lbl) {
+        lbl->setStyleSheet("color: #7F8C8D; font-weight: bold;");
+        lbl->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
     };
 
-    m_spinMinPos = new QDoubleSpinBox(); m_spinMinPos->setRange(0, 1000); m_spinMinPos->setSuffix(" mm"); m_spinMinPos->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_spinMaxPos = new QDoubleSpinBox(); m_spinMaxPos->setRange(0, 1000); m_spinMaxPos->setSuffix(" mm"); m_spinMaxPos->setValue(100.0); m_spinMaxPos->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_spinAutoSpeed = new QDoubleSpinBox(); m_spinAutoSpeed->setRange(0, 100); m_spinAutoSpeed->setSuffix(" %"); m_spinAutoSpeed->setValue(20.0); m_spinAutoSpeed->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_spinCycles = new QSpinBox(); m_spinCycles->setRange(0, 9999); m_spinCycles->setValue(5); m_spinCycles->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    auto configSpin = [](QAbstractSpinBox *widget) {
+        widget->setFixedWidth(120); 
+        widget->setMinimumHeight(30);
+        widget->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    };
 
-    addParam("起点 (Min):", m_spinMinPos, 0, 0);
-    addParam("终点 (Max):", m_spinMaxPos, 0, 2);
-    addParam("速度 (Speed):", m_spinAutoSpeed, 1, 0);
-    addParam("周期 (Cycles):", m_spinCycles, 1, 2);
+    m_spinMinPos = new QDoubleSpinBox(); m_spinMinPos->setRange(0, 1000); m_spinMinPos->setSuffix(" mm"); configSpin(m_spinMinPos);
+    m_spinMaxPos = new QDoubleSpinBox(); m_spinMaxPos->setRange(0, 1000); m_spinMaxPos->setSuffix(" mm"); m_spinMaxPos->setValue(100.0); configSpin(m_spinMaxPos);
+    m_spinAutoSpeed = new QDoubleSpinBox(); m_spinAutoSpeed->setRange(0, 100); m_spinAutoSpeed->setSuffix(" %"); m_spinAutoSpeed->setValue(20.0); configSpin(m_spinAutoSpeed);
+    m_spinCycles = new QSpinBox(); m_spinCycles->setRange(0, 9999); m_spinCycles->setValue(5); configSpin(m_spinCycles);
+
+    // Row 0
+    QLabel *lblMin = new QLabel("起点 (Min):"); configLabel(lblMin);
+    paramGrid->addWidget(lblMin, 0, 0);
+    paramGrid->addWidget(m_spinMinPos, 0, 1);
+    
+    // Spacer Col 2 (Group Spacing)
+    paramGrid->addItem(new QSpacerItem(30, 20, QSizePolicy::Fixed, QSizePolicy::Minimum), 0, 2);
+
+    QLabel *lblMax = new QLabel("终点 (Max):"); configLabel(lblMax);
+    paramGrid->addWidget(lblMax, 0, 3);
+    paramGrid->addWidget(m_spinMaxPos, 0, 4);
+
+    // Row 1
+    QLabel *lblSpeed = new QLabel("速度 (Speed):"); configLabel(lblSpeed);
+    paramGrid->addWidget(lblSpeed, 1, 0);
+    paramGrid->addWidget(m_spinAutoSpeed, 1, 1);
+    
+    QLabel *lblCycles = new QLabel("周期 (Cycles):"); configLabel(lblCycles);
+    paramGrid->addWidget(lblCycles, 1, 3);
+    paramGrid->addWidget(m_spinCycles, 1, 4);
+
+    // Push everything to left
+    paramGrid->setColumnStretch(5, 1);
 
     layout->addLayout(paramGrid);
 
@@ -124,25 +161,55 @@ void AutoTaskWidget::setupAdvancedTab(QWidget *tab)
     
     // 2. 添加步骤区域
     QHBoxLayout *inputLayout = new QHBoxLayout();
+    inputLayout->setSpacing(12);
     
     m_comboStepType = new QComboBox();
     m_comboStepType->addItem("移动到 (MoveTo)", static_cast<int>(TaskManager::StepType::MoveTo));
     m_comboStepType->addItem("等待 (Wait)", static_cast<int>(TaskManager::StepType::Wait));
-    m_comboStepType->addItem("设速度 (SetSpeed)", static_cast<int>(TaskManager::StepType::SetSpeed));
+    // m_comboStepType->addItem("设速度 (SetSpeed)", static_cast<int>(TaskManager::StepType::SetSpeed)); // 移除设速度
     
     m_spinStepParam1 = new QDoubleSpinBox(); m_spinStepParam1->setRange(0, 99999); m_spinStepParam1->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_spinStepParam2 = new QDoubleSpinBox(); m_spinStepParam2->setRange(0, 99999); m_spinStepParam2->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_spinStepParam2->setValue(20.0); // 默认速度
     
     QPushButton *btnAdd = new QPushButton("添加步骤");
     connect(btnAdd, &QPushButton::clicked, this, &AutoTaskWidget::onAddStep);
     
-    inputLayout->addWidget(new QLabel("类型:"));
-    inputLayout->addWidget(m_comboStepType);
-    inputLayout->addWidget(new QLabel("P1:"));
-    inputLayout->addWidget(m_spinStepParam1);
-    inputLayout->addWidget(new QLabel("P2:"));
-    inputLayout->addWidget(m_spinStepParam2);
+    auto createInlineField = [&](const QString &label, QWidget *widget) -> QLabel* {
+        QLabel *lbl = new QLabel(label);
+        lbl->setStyleSheet("color: #7F8C8D; font-weight: bold;");
+        lbl->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+        
+        // 设置输入框/下拉框的固定宽度
+        if (qobject_cast<QComboBox*>(widget)) {
+            widget->setFixedWidth(140);
+        } else {
+            widget->setFixedWidth(100);
+        }
+        widget->setMinimumHeight(30);
+
+        inputLayout->addWidget(lbl);
+        inputLayout->addSpacing(4);
+        inputLayout->addWidget(widget);
+        inputLayout->addSpacing(20);
+        
+        return lbl;
+    };
+
+    createInlineField("类型:", m_comboStepType);
+    QLabel *lblP1 = createInlineField("P1:", m_spinStepParam1);
+    QLabel *lblP2 = createInlineField("P2:", m_spinStepParam2);
     inputLayout->addWidget(btnAdd);
+    inputLayout->addSpacing(20);
+
+    // 新增：循环次数
+    m_spinSeqCycles = new QSpinBox();
+    m_spinSeqCycles->setRange(1, 9999);
+    m_spinSeqCycles->setValue(1);
+    m_spinSeqCycles->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    createInlineField("循环次数:", m_spinSeqCycles);
+
+    inputLayout->addStretch(); // 确保左对齐
     
     layout->addLayout(inputLayout);
     
@@ -158,43 +225,38 @@ void AutoTaskWidget::setupAdvancedTab(QWidget *tab)
     editLayout->addWidget(btnClear);
     editLayout->addStretch();
     
-    m_spinSeqCycles = new QSpinBox();
-    m_spinSeqCycles->setRange(1, 9999);
-    m_spinSeqCycles->setValue(1);
-    m_spinSeqCycles->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    
-    editLayout->addWidget(new QLabel("执行循环:"));
-    editLayout->addWidget(m_spinSeqCycles);
+    // 移除底部的循环设置
+    // m_spinSeqCycles = new QSpinBox(); ...
     
     layout->addLayout(editLayout);
-    
-    // 4. 执行按钮
+
     m_btnRunSeq = new QPushButton("执行脚本序列");
-    m_btnRunSeq->setObjectName("btnAction");
+    m_btnRunSeq->setCursor(Qt::PointingHandCursor);
     m_btnRunSeq->setMinimumHeight(40);
     connect(m_btnRunSeq, &QPushButton::clicked, this, &AutoTaskWidget::onRunSequence);
-    
     layout->addWidget(m_btnRunSeq);
     
     // 动态提示
-    connect(m_comboStepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index){
+    connect(m_comboStepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, lblP1, lblP2](int index){
         TaskManager::StepType type = static_cast<TaskManager::StepType>(m_comboStepType->currentData().toInt());
         if (type == TaskManager::StepType::MoveTo) {
+            lblP1->setText("位置 (mm):");
             m_spinStepParam1->setSuffix(" mm");
+            m_spinStepParam1->setToolTip("目标位置");
+            
+            lblP2->setText("速度 (%):");
+            lblP2->setVisible(true);
+            m_spinStepParam2->setVisible(true);
             m_spinStepParam2->setSuffix(" %");
             m_spinStepParam2->setEnabled(true);
-            m_spinStepParam1->setToolTip("目标位置");
             m_spinStepParam2->setToolTip("移动速度 (0表示使用默认)");
         } else if (type == TaskManager::StepType::Wait) {
+            lblP1->setText("时间 (ms):");
             m_spinStepParam1->setSuffix(" ms");
-            m_spinStepParam2->setSuffix("");
-            m_spinStepParam2->setEnabled(false);
             m_spinStepParam1->setToolTip("等待时间");
-        } else if (type == TaskManager::StepType::SetSpeed) {
-            m_spinStepParam1->setSuffix(" %");
-            m_spinStepParam2->setSuffix("");
-            m_spinStepParam2->setEnabled(false);
-            m_spinStepParam1->setToolTip("新的全局速度");
+            
+            lblP2->setVisible(false);
+            m_spinStepParam2->setVisible(false);
         }
     });
     // 触发一次 update
@@ -280,27 +342,40 @@ void AutoTaskWidget::updateState(TaskManager::State state)
                       
     // 控制按钮状态
     if (isRunning) {
-        // 运行时：禁用开始，启用暂停
+        // 运行时：禁用开始按钮
         m_btnStartTask->setEnabled(false);
         m_btnRunSeq->setEnabled(false);
-        m_btnPauseTask->setEnabled(true);
         
         if (state == TaskManager::State::Paused) {
              m_btnPauseTask->setText("继续任务");
+             m_btnPauseTask->setEnabled(true);
+             m_btnResetTask->setText("重置任务");
+             m_btnResetTask->setEnabled(true);  // 只有暂停时才能重置
              m_isPaused = true;
+        } else if (state == TaskManager::State::Resetting) {
+             // 重置中：禁用所有操作
+             m_btnPauseTask->setEnabled(false);
+             m_btnResetTask->setText("重置中...");
+             m_btnResetTask->setEnabled(false);
+             m_isPaused = false;
         } else {
              m_btnPauseTask->setText("暂停任务");
+             m_btnPauseTask->setEnabled(true);
+             m_btnResetTask->setText("重置任务");
+             m_btnResetTask->setEnabled(false); // 运行时不能重置
              m_isPaused = false;
         }
         
         // 运行时禁用编辑
         m_tableSteps->setEnabled(false);
     } else {
-        // 空闲时：启用开始，禁用暂停
+        // 空闲时：启用开始，禁用暂停和重置
         m_btnStartTask->setEnabled(true);
         m_btnRunSeq->setEnabled(true);
         m_btnPauseTask->setEnabled(false);
+        m_btnResetTask->setEnabled(false);
         m_btnPauseTask->setText("暂停任务");
+        m_btnResetTask->setText("重置任务");
         m_isPaused = false;
         m_progressBar->setValue(0);
         
@@ -312,6 +387,9 @@ void AutoTaskWidget::updateState(TaskManager::State state)
         m_btnStartTask->setText("自动扫描运行中...");
     } else if (state == TaskManager::State::StepExecution) {
         m_btnRunSeq->setText("脚本正在执行...");
+    } else if (state == TaskManager::State::Resetting) {
+        m_btnStartTask->setText("重置中，请稍候...");
+        m_btnRunSeq->setText("重置中，请稍候...");
     } else {
         m_btnStartTask->setText("开始扫描任务");
         m_btnRunSeq->setText("执行脚本序列");

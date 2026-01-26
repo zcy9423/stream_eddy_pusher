@@ -73,23 +73,59 @@ bool DataManager::initDatabase()
                               "start_time DATETIME, "
                               "operator_name TEXT, "
                               "tube_id TEXT, "
-                              "status TEXT DEFAULT 'create')");
+                              "status TEXT DEFAULT 'create', "
+                              "task_type TEXT DEFAULT 'manual', "  // 任务类型：manual, auto_scan, sequence
+                              "task_config TEXT, "                 // 任务配置JSON
+                              "execution_result TEXT, "            // 执行结果JSON
+                              "completion_time DATETIME)");        // 完成时间
     if (!success) LOG_ERR << "创建任务表失败：" << query.lastError().text();
 
     bool hasStatus = false;
+    bool hasTaskType = false;
+    bool hasTaskConfig = false;
+    bool hasExecutionResult = false;
+    bool hasCompletionTime = false;
+    
     if (query.exec("PRAGMA table_info(DetectionTask)")) {
         while (query.next()) {
-            if (query.value("name").toString() == "status") {
-                hasStatus = true;
-                break;
-            }
+            QString fieldName = query.value("name").toString();
+            if (fieldName == "status") hasStatus = true;
+            else if (fieldName == "task_type") hasTaskType = true;
+            else if (fieldName == "task_config") hasTaskConfig = true;
+            else if (fieldName == "execution_result") hasExecutionResult = true;
+            else if (fieldName == "completion_time") hasCompletionTime = true;
         }
     }
 
+    // 添加缺失的字段
     if (!hasStatus) {
         QSqlQuery alterQuery(db);
         if (!alterQuery.exec("ALTER TABLE DetectionTask ADD COLUMN status TEXT DEFAULT 'create'")) {
             LOG_ERR << "新增状态列失败：" << alterQuery.lastError().text();
+        }
+    }
+    if (!hasTaskType) {
+        QSqlQuery alterQuery(db);
+        if (!alterQuery.exec("ALTER TABLE DetectionTask ADD COLUMN task_type TEXT DEFAULT 'manual'")) {
+            LOG_ERR << "新增任务类型列失败：" << alterQuery.lastError().text();
+        }
+    }
+    if (!hasTaskConfig) {
+        QSqlQuery alterQuery(db);
+        if (!alterQuery.exec("ALTER TABLE DetectionTask ADD COLUMN task_config TEXT")) {
+            LOG_ERR << "新增任务配置列失败：" << alterQuery.lastError().text();
+        }
+    }
+    if (!hasExecutionResult) {
+        QSqlQuery alterQuery(db);
+        if (!alterQuery.exec("ALTER TABLE DetectionTask ADD COLUMN execution_result TEXT")) {
+            LOG_ERR << "新增执行结果列失败：" << alterQuery.lastError().text();
+        }
+    }
+    if (!hasCompletionTime) {
+        QSqlQuery alterQuery(db);
+        if (!alterQuery.exec("ALTER TABLE DetectionTask ADD COLUMN completion_time DATETIME")) {
+            LOG_ERR << "新增完成时间列失败：" << alterQuery.lastError().text();
         }
     }
 
@@ -264,4 +300,83 @@ bool DataManager::deleteDetectionTask(int taskId)
     }
 
     return true;
+}
+bool DataManager::updateTaskConfig(int taskId, const QString &taskType, const QString &taskConfig)
+{
+    if (taskId <= 0) return false;
+
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return false;
+
+    QSqlQuery query(db);
+    query.prepare("UPDATE DetectionTask SET task_type = :type, task_config = :config WHERE id = :tid");
+    query.bindValue(":type", taskType);
+    query.bindValue(":config", taskConfig);
+    query.bindValue(":tid", taskId);
+    
+    if (!query.exec()) {
+        LOG_ERR << "更新任务配置失败:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool DataManager::getTaskConfig(int taskId, QString &taskType, QString &taskConfig)
+{
+    if (taskId <= 0) return false;
+
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return false;
+
+    QSqlQuery query(db);
+    query.prepare("SELECT task_type, task_config FROM DetectionTask WHERE id = :tid");
+    query.bindValue(":tid", taskId);
+    
+    if (query.exec() && query.next()) {
+        taskType = query.value("task_type").toString();
+        taskConfig = query.value("task_config").toString();
+        return true;
+    }
+    return false;
+}
+
+bool DataManager::updateTaskExecutionResult(int taskId, const QString &executionResult)
+{
+    if (taskId <= 0) return false;
+
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return false;
+
+    QSqlQuery query(db);
+    query.prepare("UPDATE DetectionTask SET execution_result = :result, completion_time = :time WHERE id = :tid");
+    query.bindValue(":result", executionResult);
+    query.bindValue(":time", QDateTime::currentDateTime());
+    query.bindValue(":tid", taskId);
+    
+    if (!query.exec()) {
+        LOG_ERR << "更新任务执行结果失败:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+QString DataManager::getTaskExecutionResult(int taskId)
+{
+    if (taskId <= 0) return QString();
+
+    QString connName = getConnectionName();
+    QSqlDatabase db = QSqlDatabase::database(connName);
+    if (!db.isOpen()) return QString();
+
+    QSqlQuery query(db);
+    query.prepare("SELECT execution_result FROM DetectionTask WHERE id = :tid");
+    query.bindValue(":tid", taskId);
+    
+    if (query.exec() && query.next()) {
+        return query.value("execution_result").toString();
+    }
+    return QString();
 }

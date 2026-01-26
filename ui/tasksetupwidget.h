@@ -28,6 +28,14 @@ public:
      * @param tubeId 可选：如果提供，将用于填充列表
      */
     void updateTaskState(int taskId, const QString& opName = "", const QString& tubeId = "");
+    
+    /**
+     * @brief 更新表格中指定任务的状态
+     * @param taskId 任务ID
+     * @param status 新状态
+     */
+    void updateTaskStatusInTable(int taskId, const QString& status);
+    
     void loadHistory(QSqlTableModel *model);
 
     QString operatorName() const;
@@ -35,9 +43,12 @@ public:
 
 signals:
     void createTaskClicked(const QString &opName, const QString &tubeId);
-    void startTaskClicked(int taskId);
-    void endTaskClicked(int taskId);
+    void configTaskClicked(int taskId);
+    void executeTaskClicked(int taskId);
+    void stopTaskClicked(int taskId);
+    void viewResultClicked(int taskId);
     void deleteTaskClicked(int taskId);
+    void batchDeleteTasksClicked(const QList<int> &taskIds);
 
 private:
     QLineEdit *m_editOperator;
@@ -47,12 +58,21 @@ private:
     // 任务列表相关
     QTableWidget *m_taskTable;
     
+    // 批量操作按钮
+    QPushButton *m_btnSelectAll;
+    QPushButton *m_btnSelectNone;
+    QPushButton *m_btnDeleteSelected;
+    
     // 当前活跃任务ID
     int m_activeTaskId = -1;
 
 private slots:
     void checkInput();
     void onTableBtnClicked();
+    void selectAllTasks();
+    void selectNoneTasks();
+    void deleteSelectedTasks();
+    void onCheckboxStateChanged();
 };
 
 #endif // TASKSETUPWIDGET_H

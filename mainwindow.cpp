@@ -1,5 +1,6 @@
 #include "mainwindow.h"
-#include "ui/taskconfigdialog.h" 
+#include "ui/taskconfigdialog.h"
+#include "ui/taskconfigwidget.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -11,6 +12,10 @@
 #include <QMenu>
 #include <QPainter>
 #include <QDateTime>
+#include <QCloseEvent>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -18,6 +23,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 1. 设置窗口基础属性
     this->setWindowTitle("蒸发器涡流检测推拔器控制软件");
     this->resize(1600, 1000); // 宽屏长方形比例
+    
+    // 设置合理的最小尺寸
+    this->setMinimumSize(1200, 800);
     
     // 初始化配置 (确保目录存在)
     ConfigManager::instance().ensureDataDirExists();
@@ -300,13 +308,31 @@ void MainWindow::showEvent(QShowEvent *event)
 {
     QMainWindow::showEvent(event);
 
+    // 简化的布局处理
     if (auto *cw = centralWidget()) {
         if (auto *layout = cw->layout()) {
+            // 只做基本的布局激活
             QTimer::singleShot(0, this, [layout]() {
                 layout->activate();
             });
         }
     }
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (m_controller) {
+        TaskManager *tm = m_controller->taskManager();
+        // 只有当任务真正在运行时才阻止程序关闭
+        bool isTaskRunning = (tm && tm->isRunning());
+        
+        if (isTaskRunning) {
+            QMessageBox::information(this, "提示", "请先停止任务");
+            event->ignore();
+            return;
+        }
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::initLogic()
@@ -326,14 +352,104 @@ void MainWindow::initLogic()
     connect(m_taskSetupWidget, &TaskSetupWidget::createTaskClicked, this, [this](QString op, QString tube){
         m_controller->startNewTask(op, tube);
     });
-    connect(m_taskSetupWidget, &TaskSetupWidget::startTaskClicked, this, [this](int taskId){
-        m_controller->activateTask(taskId);
-        m_controller->updateTaskStatus(taskId, "starting");
-        QMessageBox::information(this, "提示", "任务已激活，请前往控制页面操作");
+    connect(m_taskSetupWidget, &TaskSetupWidget::configTaskClicked, this, [this](int taskId){
+        // 打开任务配置对话框
+        TaskConfigWidget configDialog(taskId, this);
+        
+        // 加载现有配置
+        QString taskType, taskConfig;
+        if (m_controller->dataManager()->getTaskConfig(taskId, taskType, taskConfig)) {
+            configDialog.setTaskConfig(taskType, taskConfig);
+        }
+        
+        if (configDialog.exec() == QDialog::Accepted) {
+            // 保存配置
+            QString newTaskType = configDialog.getTaskType();
+            QString newTaskConfig = configDialog.getTaskConfig();
+            
+            if (m_controller->dataManager()->updateTaskConfig(taskId, newTaskType, newTaskConfig)) {
+                // 更新任务状态为已配置
+                m_controller->updateTaskStatus(taskId, "configured");
+                QMessageBox::information(this, "提示", "任务配置已保存");
+                
+                // 刷新任务列表
+                if (m_taskModel) m_taskModel->select();
+                m_taskSetupWidget->loadHistory(m_taskModel);
+            } else {
+                QMessageBox::warning(this, "错误", "保存任务配置失败");
+            }
+        }
     });
-    connect(m_taskSetupWidget, &TaskSetupWidget::endTaskClicked, this, [this](int taskId){
-        m_controller->updateTaskStatus(taskId, "stop");
-        m_controller->endCurrentTask();
+    connect(m_taskSetupWidget, &TaskSetupWidget::executeTaskClicked, this, [this](int taskId){
+        // 检查设备连接状态
+        if (!m_isConnected) {
+            QMessageBox::warning(this, "提示", "请连接设备后重试");
+            return;
+        }
+        
+        // 执行任务
+        QString taskType, taskConfig;
+        if (!m_controller->dataManager()->getTaskConfig(taskId, taskType, taskConfig)) {
+            QMessageBox::warning(this, "错误", "无法获取任务配置");
+            return;
+        }
+        
+        // 激活任务并更新状态为运行中
+        m_controller->activateTask(taskId);
+        m_controller->updateTaskStatus(taskId, "running");
+        
+        // 更新UI中的任务状态显示
+        m_taskSetupWidget->updateTaskStatusInTable(taskId, "running");
+        
+        // 根据任务类型执行相应的操作
+        if (taskType == "auto_scan") {
+            executeAutoScanTask(taskConfig);
+        } else if (taskType == "sequence") {
+            executeSequenceTask(taskConfig);
+        }
+    });
+    connect(m_taskSetupWidget, &TaskSetupWidget::stopTaskClicked, this, [this](int taskId){
+        // 停止任务执行
+        if (m_controller->currentTaskId() == taskId) {
+            // 停止TaskManager中的任务
+            TaskManager *tm = m_controller->taskManager();
+            if (tm) {
+                tm->stopAll();
+            }
+            // 停止设备运动
+            m_controller->stopMotion();
+            
+            // 更新任务状态为已停止
+            m_controller->updateTaskStatus(taskId, "stopped");
+            
+            // 生成停止结果JSON
+            QJsonObject result;
+            result["completionTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+            result["status"] = "stopped";
+            result["message"] = "任务被用户手动停止";
+            
+            QJsonDocument doc(result);
+            QString resultJson = doc.toJson(QJsonDocument::Compact);
+            m_controller->dataManager()->updateTaskExecutionResult(taskId, resultJson);
+            
+            // 清除当前任务ID
+            m_controller->endCurrentTask();
+            
+            // 更新UI状态
+            m_taskSetupWidget->updateTaskStatusInTable(taskId, "stopped");
+            
+            QMessageBox::information(this, "提示", "任务已停止");
+        }
+    });
+    connect(m_taskSetupWidget, &TaskSetupWidget::viewResultClicked, this, [this](int taskId){
+        // 查看任务结果
+        QString result = m_controller->dataManager()->getTaskExecutionResult(taskId);
+        if (result.isEmpty()) {
+            QMessageBox::information(this, "提示", "该任务暂无执行结果");
+        } else {
+            // 这里可以创建一个结果查看对话框
+            QMessageBox::information(this, "任务执行结果", result);
+        }
     });
     connect(m_taskSetupWidget, &TaskSetupWidget::deleteTaskClicked, this, [this](int taskId){
         const auto reply = QMessageBox::question(
@@ -351,6 +467,30 @@ void MainWindow::initLogic()
             m_taskSetupWidget->loadHistory(m_taskModel);
         }
     });
+    connect(m_taskSetupWidget, &TaskSetupWidget::batchDeleteTasksClicked, this, [this](const QList<int> &taskIds){
+        // 批量删除任务
+        int successCount = 0;
+        int failCount = 0;
+        
+        for (int taskId : taskIds) {
+            if (m_controller->deleteTask(taskId)) {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        }
+        
+        // 刷新任务列表
+        if (m_taskModel) m_taskModel->select();
+        m_taskSetupWidget->loadHistory(m_taskModel);
+        
+        // 显示删除结果
+        if (failCount == 0) {
+            QMessageBox::information(this, "删除完成", QString("成功删除 %1 个任务").arg(successCount));
+        } else {
+            QMessageBox::warning(this, "删除完成", QString("成功删除 %1 个任务，失败 %2 个").arg(successCount).arg(failCount));
+        }
+    });
 
     // --- 3. 手动控制事件 ---
     connect(m_manualWidget, &ManualControlWidget::moveForwardClicked, this, &MainWindow::onForwardPressed);
@@ -365,6 +505,7 @@ void MainWindow::initLogic()
         connect(m_autoTaskWidget, &AutoTaskWidget::startSequenceClicked, tm, &TaskManager::startTaskSequence);
         connect(m_autoTaskWidget, &AutoTaskWidget::pauseTaskClicked, tm, &TaskManager::pause);
         connect(m_autoTaskWidget, &AutoTaskWidget::resumeTaskClicked, tm, &TaskManager::resume);
+        connect(m_autoTaskWidget, &AutoTaskWidget::resetTaskClicked, tm, &TaskManager::resetTask);
         // TaskManager 反馈 -> UI
         connect(tm, &TaskManager::progressChanged, m_autoTaskWidget, &AutoTaskWidget::updateProgress);
         connect(tm, &TaskManager::stateChanged, m_autoTaskWidget, &AutoTaskWidget::updateState);
@@ -384,10 +525,9 @@ void MainWindow::initLogic()
              if (m_statusAuto) m_statusAuto->setDisconnected();
         }
 
-        // 重新计算控制权限：必须同时满足 (已连接) 和 (有任务)
-        bool canControl = m_isConnected && (m_controller->currentTaskId() != -1);
-        m_manualWidget->setControlsEnabled(canControl);
-        m_autoTaskWidget->setEnabled(canControl);
+        // 重新计算控制权限：只要已连接就可以控制
+        m_manualWidget->setControlsEnabled(m_isConnected);
+        m_autoTaskWidget->setEnabled(m_isConnected);
     });
     
     // 任务状态变化
@@ -396,10 +536,14 @@ void MainWindow::initLogic()
         // 注意：这里不再负责添加行，添加行由 taskCreated 负责
         m_taskSetupWidget->updateTaskState(taskId);
         
-        // 只有当 (已连接 AND 有任务) 时才启用控制
-        bool canControl = m_isConnected && (taskId != -1);
-        m_manualWidget->setControlsEnabled(canControl);
-        m_autoTaskWidget->setEnabled(canControl);
+        // 如果任务完成或失败，需要刷新数据库模型以显示最新状态
+        if (taskId != -1) {
+            if (m_taskModel) m_taskModel->select();
+            m_taskSetupWidget->loadHistory(m_taskModel);
+        }
+        
+        // 控制权限只依赖连接状态，不依赖任务状态
+        // 这样任务完成后用户仍然可以进行手动控制或开始新任务
     });
     
     // 任务创建通知
@@ -476,13 +620,19 @@ void MainWindow::checkLogin()
 {
     // 如果当前未登录，弹出登录框
     if (UserManager::instance().currentUser().role == UserManager::Guest) {
-        // 隐藏主窗口，营造"回到登录界面"的感觉
-        this->hide();
-        
-        LoginDialog dlg(nullptr); // 使用 nullptr 作为父对象，确保是独立窗口
+        LoginDialog dlg(this); // 使用this作为父对象，避免窗口管理问题
         if (dlg.exec() == QDialog::Accepted) {
-            // 登录成功
-            this->showMaximized();
+            // 登录成功 - 不需要重新显示窗口，因为窗口已经显示了
+            // 只需要强制布局更新
+            QTimer::singleShot(50, this, [this]() {
+                if (auto *cw = centralWidget()) {
+                    if (auto *layout = cw->layout()) {
+                        layout->activate();
+                        layout->update();
+                    }
+                }
+                this->update();
+            });
         } else {
             // 用户在登录界面点击取消或关闭
             // 既然必须登录才能使用，这里直接退出程序
@@ -559,4 +709,63 @@ void MainWindow::updateStatusDisplay(MotionFeedback fb)
 void MainWindow::updateLogView()
 {
     m_logWidget->refresh();
+}
+void MainWindow::executeAutoScanTask(const QString &configJson)
+{
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(configJson.toUtf8(), &error);
+    if (error.error != QJsonParseError::NoError) {
+        QMessageBox::warning(this, "错误", "任务配置格式错误");
+        return;
+    }
+    
+    QJsonObject config = doc.object();
+    double minPos = config["minPos"].toDouble(0.0);
+    double maxPos = config["maxPos"].toDouble(100.0);
+    double speed = config["speed"].toDouble(20.0);
+    int cycles = config["cycles"].toInt(5);
+    
+    // 执行自动扫描
+    TaskManager *tm = m_controller->taskManager();
+    if (tm) {
+        tm->startAutoScan(minPos, maxPos, speed, cycles);
+    }
+}
+
+void MainWindow::executeSequenceTask(const QString &configJson)
+{
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(configJson.toUtf8(), &error);
+    if (error.error != QJsonParseError::NoError) {
+        QMessageBox::warning(this, "错误", "任务配置格式错误");
+        return;
+    }
+    
+    QJsonObject config = doc.object();
+    int cycles = config["cycles"].toInt(1);
+    QJsonArray stepsArray = config["steps"].toArray();
+    
+    QList<TaskManager::TaskStep> steps;
+    for (const QJsonValue &stepValue : stepsArray) {
+        QJsonObject stepObj = stepValue.toObject();
+        TaskManager::TaskStep step;
+        step.type = static_cast<TaskManager::StepType>(stepObj["type"].toInt());
+        step.param1 = stepObj["param1"].toDouble();
+        step.param2 = stepObj["param2"].toDouble();
+        
+        // 生成描述
+        if (step.type == TaskManager::StepType::MoveTo) {
+            step.description = QString("MoveTo %1mm @ %2%").arg(step.param1).arg(step.param2);
+        } else if (step.type == TaskManager::StepType::Wait) {
+            step.description = QString("Wait %1ms").arg(step.param1);
+        }
+        
+        steps.append(step);
+    }
+    
+    // 执行脚本序列
+    TaskManager *tm = m_controller->taskManager();
+    if (tm) {
+        tm->startTaskSequence(steps, cycles);
+    }
 }

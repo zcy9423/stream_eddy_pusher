@@ -3,11 +3,13 @@
 
 #include <QGroupBox>
 #include <QTableView>
+#include <QTableWidget>
 #include <QSqlTableModel>
-
 #include <QLineEdit>
 #include <QDateEdit>
 #include <QPushButton>
+#include <QCheckBox>
+#include <QSet>
 
 class LogWidget : public QGroupBox
 {
@@ -23,16 +25,28 @@ public:
 
 private slots:
     // 当在任务列表中选择某行时触发
-    void onTaskSelected(const QModelIndex &index);
+    void onTaskSelected(int row, int column);
+    
+    // 复选框状态改变
+    void onCheckboxStateChanged();
     
     // 查询按钮点击
     void onQueryClicked();
     
     // 导出按钮点击
     void onExportClicked();
+    
+    // 全选/取消全选
+    void onSelectAllClicked();
 
 private:
-    QTableView *m_taskView; // 任务列表视图
+    void updateTaskTable();
+    void updateExportButtonState();
+    void restoreCheckboxStates(const QSet<int> &selectedTaskIds);
+    QSet<int> getSelectedTaskIds() const;
+
+private:
+    QTableWidget *m_taskTable; // 任务列表表格（使用QTableWidget支持复选框）
     QTableView *m_logView;  // 详细日志视图
     
     QSqlTableModel *m_taskModel;
@@ -44,6 +58,7 @@ private:
     QLineEdit *m_editTubeId;
     QPushButton *m_btnQuery;
     QPushButton *m_btnExport;
+    QPushButton *m_btnSelectAll;
 };
 
 #endif // LOGWIDGET_H

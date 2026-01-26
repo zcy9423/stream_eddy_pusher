@@ -1,6 +1,9 @@
 #include "devicecontroller.h"
 #include "../utils/logger.h"
-#include "configmanager.h"  
+#include "configmanager.h"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QDateTime>
 
 DeviceController::DeviceController(QObject *parent) : QObject(parent)
 {
@@ -73,6 +76,58 @@ void DeviceController::init()
         cmd.type = ControlCommand::Stop;
         emit cmdSendPacket(cmd);
     });
+    
+    // 处理任务完成
+    connect(m_taskManager, &TaskManager::taskCompleted, this, [this](){
+        if (m_currentTaskId != -1) {
+            // 生成执行结果JSON
+            QJsonObject result;
+            result["completionTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+            result["status"] = "success";
+            result["message"] = "任务执行完成";
+            
+            QJsonDocument doc(result);
+            QString resultJson = doc.toJson(QJsonDocument::Compact);
+            
+            // 更新数据库中的任务状态和执行结果
+            updateTaskStatus(m_currentTaskId, "completed");
+            m_dataManager->updateTaskExecutionResult(m_currentTaskId, resultJson);
+            
+            LOG_INFO << "任务完成: ID=" << m_currentTaskId;
+            
+            // 先发送任务状态变更信号（包含具体的taskId）
+            int completedTaskId = m_currentTaskId;
+            // 清除当前任务ID
+            m_currentTaskId = -1;
+            emit taskStateChanged(completedTaskId);
+        }
+    });
+    
+    // 处理任务失败
+    connect(m_taskManager, &TaskManager::taskFailed, this, [this](const QString& reason){
+        if (m_currentTaskId != -1) {
+            // 生成失败结果JSON
+            QJsonObject result;
+            result["completionTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+            result["status"] = "failed";
+            result["message"] = reason;
+            
+            QJsonDocument doc(result);
+            QString resultJson = doc.toJson(QJsonDocument::Compact);
+            
+            // 更新数据库中的任务状态和执行结果
+            updateTaskStatus(m_currentTaskId, "failed");
+            m_dataManager->updateTaskExecutionResult(m_currentTaskId, resultJson);
+            
+            LOG_ERR << "任务失败: ID=" << m_currentTaskId << " 原因:" << reason;
+            
+            // 先发送任务状态变更信号（包含具体的taskId）
+            int failedTaskId = m_currentTaskId;
+            // 清除当前任务ID
+            m_currentTaskId = -1;
+            emit taskStateChanged(failedTaskId);
+        }
+    });
 }
 
 void DeviceController::startAutoScan(double min, double max, double speed, int cycles) {
@@ -83,6 +138,7 @@ void DeviceController::startAutoScan(double min, double max, double speed, int c
 
 void DeviceController::pauseAutoScan() { m_taskManager->pause(); }
 void DeviceController::resumeAutoScan() { m_taskManager->resume(); }
+void DeviceController::resetAutoScan() { m_taskManager->resetTask(); }
 void DeviceController::stopAutoScan() { m_taskManager->stopAll(); }
 
 void DeviceController::requestConnect(int type, const QString &addr, int portOrBaud)
@@ -120,18 +176,35 @@ void DeviceController::setSpeed(double speed)
 
 void DeviceController::onFeedbackReceived(MotionFeedback fb)
 {
-    // 检查手动控制下的软限位保护
-    if (!m_taskManager->isRunning()) {
-        double maxPos = ConfigManager::instance().maxPosition();
+    // 检查软限位保护
+    double maxPos = ConfigManager::instance().maxPosition();
+    
+    if (m_taskManager->isRunning()) {
+        // 自动任务运行时：只有明显超出限位才停止（留一点容差）
+        double tolerance = 0.5; // 0.5mm容差
         
-        // 左限位保护 (拉回时 < 0)
-        // 注意：这里我们假设 0 是绝对左限位。如果用户需要配置最小限位，需读取 minPosition (目前 ConfigManager 似乎只提供了 maxPosition)
+        // 左限位保护：超出左限位容差范围
+        if (fb.status == DeviceStatus::MovingBackward && fb.position_mm < (0.0 - tolerance)) {
+            stopMotion();
+            m_taskManager->stopAll();
+            emit errorMessage(QString("⚠️ 超出左限位保护范围 (%1mm)，自动停止！").arg(0.0 - tolerance));
+        }
+        
+        // 右限位保护：超出右限位容差范围
+        if (fb.status == DeviceStatus::MovingForward && fb.position_mm > (maxPos + tolerance)) {
+            stopMotion();
+            m_taskManager->stopAll();
+            emit errorMessage(QString("⚠️ 超出右限位保护范围 (%1mm)，自动停止！").arg(maxPos + tolerance));
+        }
+    } else {
+        // 手动控制时：严格限位保护
+        // 左限位保护 (拉回时 <= 0)
         if (fb.status == DeviceStatus::MovingBackward && fb.position_mm <= 0.0) {
             stopMotion();
             emit errorMessage("⚠️ 已到达左限位 (0mm)，自动停止！");
         }
         
-        // 右限位保护 (推进时 > Max)
+        // 右限位保护 (推进时 >= Max)
         if (fb.status == DeviceStatus::MovingForward && fb.position_mm >= maxPos) {
             stopMotion();
             emit errorMessage(QString("⚠️ 已到达右限位 (%1mm)，自动停止！").arg(maxPos));

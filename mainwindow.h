@@ -18,6 +18,7 @@
 #include "core/configmanager.h"
 #include "core/usermanager.h"
 #include <QLabel>
+class QCloseEvent;
 
 /**
  * @brief 主窗口类
@@ -79,6 +80,7 @@ private slots:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     /**
@@ -103,6 +105,17 @@ private:
      * @brief 检查并强制登录
      */
     void checkLogin();
+    
+    /**
+     * @brief 执行自动扫描任务
+     */
+    void executeAutoScanTask(const QString &configJson);
+    
+    /**
+     * @brief 执行脚本序列任务
+     */
+    void executeSequenceTask(const QString &configJson);
+    
     QIcon createIcon(const QString &text, const QColor &bg, const QColor &fg); // 新增图标生成辅助函数
 
     // --- UI 组件指针 ---

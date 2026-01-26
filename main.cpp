@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 #include <QApplication>
 #include <QLoggingCategory>
+#include <QTimer>
+#include <QScreen>
 #include "communication/protocol.h"
 #include "ui/logindialog.h"
 
@@ -96,6 +98,15 @@ int main(int argc, char *argv[])
             background-color: #FFFFFF; border: 1px solid #BDC3C7; border-radius: 4px; color: #2C3E50; padding: 4px;
         }
         QLineEdit:focus, QSpinBox:focus, QDateEdit:focus, QDateTimeEdit:focus, QComboBox:focus { border: 1px solid #3498DB; }
+        
+        /* 隐藏SpinBox的上下箭头按钮 */
+        QSpinBox::up-button, QDoubleSpinBox::up-button {
+            width: 0px; height: 0px; border: none;
+        }
+        QSpinBox::down-button, QDoubleSpinBox::down-button {
+            width: 0px; height: 0px; border: none;
+        }
+        
         QComboBox::drop-down { border: none; width: 20px; }
 
         /* 表格 */
@@ -136,9 +147,9 @@ int main(int argc, char *argv[])
 
     // 创建并显示主窗口
     MainWindow w;
-    // w.resize(1024, 768); // 移除硬编码大小，由 MainWindow 内部 adjustSize 决定
-    w.showMaximized(); // 建议默认最大化显示，以充分利用屏幕空间
-    // 如果不想最大化，也可以用 w.show()，此时会使用 adjustSize() 后的尺寸
+    
+    // 正常显示窗口，不自动最大化
+    w.show();
 
     // 进入 Qt 的主事件循环
     // exec() 会阻塞直到 exit() 被调用（通常是在最后一个窗口关闭时）
