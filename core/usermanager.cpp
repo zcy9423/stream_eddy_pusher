@@ -6,6 +6,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QDebug>
+#include <QCoreApplication>
 
 UserManager& UserManager::instance()
 {
@@ -123,7 +124,14 @@ bool UserManager::removeUser(const QString& username)
 
 void UserManager::loadUsers()
 {
-    QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/users.json";
+    // 使用程序当前目录下的 Config 文件夹
+    QString configDir = QCoreApplication::applicationDirPath() + "/Config";
+    QDir dir(configDir);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    
+    QString path = configDir + "/users.json";
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         return;
@@ -146,11 +154,12 @@ void UserManager::loadUsers()
 
 void UserManager::saveUsers()
 {
-    QString dirPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir dir(dirPath);
+    // 使用程序当前目录下的 Config 文件夹
+    QString configDir = QCoreApplication::applicationDirPath() + "/Config";
+    QDir dir(configDir);
     if (!dir.exists()) dir.mkpath(".");
 
-    QString path = dirPath + "/users.json";
+    QString path = configDir + "/users.json";
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "Failed to save users to" << path;

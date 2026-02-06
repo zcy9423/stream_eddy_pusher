@@ -46,16 +46,21 @@ QString DataManager::getConnectionName() const
  */
 bool DataManager::initDatabase()
 {
+    LOG_INFO << "========== 初始化数据库 ==========";
     QString connName = getConnectionName();
+    LOG_INFO << "数据库连接名: " << connName;
     QSqlDatabase db;
     
     // 从配置中获取存储路径
     QString dataDir = ConfigManager::instance().dataStoragePath();
     m_dbPath = dataDir + "/EddyPusher.db";
+    LOG_INFO << "数据库路径: " << m_dbPath;
 
     if (QSqlDatabase::contains(connName)) {
+        LOG_INFO << "使用已存在的数据库连接";
         db = QSqlDatabase::database(connName);
     } else {
+        LOG_INFO << "创建新的数据库连接";
         db = QSqlDatabase::addDatabase("QSQLITE", connName);
         db.setDatabaseName(m_dbPath);
     }
@@ -64,10 +69,12 @@ bool DataManager::initDatabase()
         LOG_ERR << "数据库打开失败：" << db.lastError().text();
         return false;
     }
+    LOG_INFO << "数据库打开成功";
 
     QSqlQuery query(db);
     
     // 表1: 任务表 - 存储每次检测任务的元数据
+    LOG_INFO << "创建/检查 DetectionTask 表";
     bool success = query.exec("CREATE TABLE IF NOT EXISTS DetectionTask ("
                               "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                               "start_time DATETIME, "
@@ -78,7 +85,11 @@ bool DataManager::initDatabase()
                               "task_config TEXT, "                 // 任务配置JSON
                               "execution_result TEXT, "            // 执行结果JSON
                               "completion_time DATETIME)");        // 完成时间
-    if (!success) LOG_ERR << "创建任务表失败：" << query.lastError().text();
+    if (!success) {
+        LOG_ERR << "创建任务表失败：" << query.lastError().text();
+    } else {
+        LOG_INFO << "DetectionTask 表就绪";
+    }
 
     bool hasStatus = false;
     bool hasTaskType = false;
@@ -142,6 +153,7 @@ bool DataManager::initDatabase()
 
     // 表2: 运动日志表 - 存储高频的运动状态数据
     // 注意：在实际高频写入场景中，可能需要考虑分表或定期归档
+    LOG_INFO << "创建/检查 MotionLog 表";
     success = query.exec("CREATE TABLE IF NOT EXISTS MotionLog ("
                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                          "task_id INTEGER, "
@@ -150,11 +162,17 @@ bool DataManager::initDatabase()
                          "speed REAL, "
                          "status INTEGER)");
                          
-    if (!success) LOG_ERR << "创建日志失败：" << query.lastError().text();
+    if (!success) {
+        LOG_ERR << "创建日志失败：" << query.lastError().text();
+    } else {
+        LOG_INFO << "MotionLog 表就绪";
+    }
 
     // 初始化完成后，执行一次数据清理 (自动维护策略)
+    LOG_INFO << "执行数据清理 (保留最近30天数据)";
     cleanupOldData(30);
 
+    LOG_INFO << "数据库初始化完成";
     return success;
 }
 
@@ -240,6 +258,9 @@ void DataManager::logMotionData(const MotionFeedback &fb, int taskId)
  */
 int DataManager::createDetectionTask(const QString &operatorName, const QString &tubeId)
 {
+    LOG_INFO << "========== 创建检测任务 ==========";
+    LOG_INFO << "操作员: " << operatorName << ", 管号: " << tubeId;
+    
     QString connName = getConnectionName();
     QSqlDatabase db = QSqlDatabase::database(connName);
     QSqlQuery query(db);
@@ -252,14 +273,19 @@ int DataManager::createDetectionTask(const QString &operatorName, const QString 
     query.bindValue(":status", "create");
     
     if (query.exec()) {
-        return query.lastInsertId().toInt();
+        int taskId = query.lastInsertId().toInt();
+        LOG_INFO << "任务创建成功，ID: " << taskId;
+        return taskId;
     }
+    LOG_ERR << "任务创建失败: " << query.lastError().text();
     return -1;
 }
 
 bool DataManager::updateDetectionTaskStatus(int taskId, const QString &status)
 {
     if (taskId <= 0) return false;
+
+    LOG_INFO << "更新任务状态 - ID: " << taskId << ", 新状态: " << status;
 
     QString connName = getConnectionName();
     QSqlDatabase db = QSqlDatabase::database(connName);
@@ -273,6 +299,7 @@ bool DataManager::updateDetectionTaskStatus(int taskId, const QString &status)
         LOG_ERR << "更新任务状态失败:" << query.lastError().text();
         return false;
     }
+    LOG_INFO << "任务状态更新成功";
     return true;
 }
 

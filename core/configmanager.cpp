@@ -1,6 +1,7 @@
 #include "configmanager.h"
 #include <QStandardPaths>
 #include <QDir>
+#include <QCoreApplication>
 
 ConfigManager& ConfigManager::instance()
 {
@@ -58,8 +59,18 @@ void ConfigManager::setMotionTimeout(int ms)
 // --- 数据存储配置 ---
 QString ConfigManager::dataStoragePath() const 
 {
-    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/EddyPusherData";
-    return m_settings.value("Data/StoragePath", defaultPath).toString();
+    // 强制使用程序当前目录下的 AppData 文件夹（避免与源代码的 data 文件夹冲突）
+    // 不再从配置文件读取，避免使用旧的系统路径
+    QString appDirPath = QCoreApplication::applicationDirPath() + "/AppData";
+    
+    // 检查配置文件中是否有旧路径，如果有则更新为新路径
+    QString savedPath = m_settings.value("Data/StoragePath", "").toString();
+    if (savedPath != appDirPath && !savedPath.isEmpty()) {
+        // 更新配置文件中的路径
+        const_cast<QSettings&>(m_settings).setValue("Data/StoragePath", appDirPath);
+    }
+    
+    return appDirPath;
 }
 
 void ConfigManager::setDataStoragePath(const QString &path) 

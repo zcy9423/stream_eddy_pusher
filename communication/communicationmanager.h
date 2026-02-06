@@ -64,6 +64,8 @@ private slots:
 private:
     void cleanup();
     void parseBuffer();
+    QString getSerialErrorMessage(QSerialPort::SerialPortError error);
+    QString getTcpErrorMessage(QAbstractSocket::SocketError error);
 
     ConnectionType m_currentType = ConnectionType::Serial;
     bool m_isConnected = false;

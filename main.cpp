@@ -5,6 +5,8 @@
 #include <QScreen>
 #include "communication/protocol.h"
 #include "ui/logindialog.h"
+#include "core/configmanager.h"
+#include "utils/logger.h"
 
 /**
  * @brief 应用程序入口点
@@ -28,6 +30,13 @@ int main(int argc, char *argv[])
     // 设置应用程序元数据
     a.setApplicationName("蒸发器涡流探头推拔器控制系统");
     a.setApplicationVersion("1.0.0");
+    
+    // 打印程序路径信息
+    LOG_INFO << "========================================";
+    LOG_INFO << "程序启动";
+    LOG_INFO << "程序目录: " << QCoreApplication::applicationDirPath();
+    LOG_INFO << "数据存储路径: " << ConfigManager::instance().dataStoragePath();
+    LOG_INFO << "========================================";
 
     // === 全局蓝白主题 (Modern Blue & White) ===
     QString qss = R"(

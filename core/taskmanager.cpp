@@ -67,13 +67,19 @@ int TaskManager::edgeTimeoutMs() const
  */
 void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int cycles)
 {
+    LOG_INFO << "========== 启动自动扫描任务 ==========";
+    LOG_INFO << "参数 - 最小位置: " << minPos << " mm, 最大位置: " << maxPos << " mm";
+    LOG_INFO << "参数 - 速度: " << speed << " mm/s, 周期数: " << cycles;
+    
     if (m_state != State::Idle && m_state != State::Fault) {
+        LOG_WARN << "任务启动失败: 当前状态不是Idle或Fault (当前状态: " << (int)m_state << ")";
         emit message("任务正在运行，请先停止");
         return;
     }
 
     // 参数校验
     if (qIsNaN(minPos) || qIsNaN(maxPos) || qIsNaN(speed)) {
+        LOG_ERR << "参数校验失败: 存在NaN值";
         enterFault("startAutoScan: parameter is NaN.");
         return;
     }
@@ -81,6 +87,7 @@ void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int 
     // 参数校验：检查最大行程限制
     double limitPos = ConfigManager::instance().maxPosition();
     if (maxPos > limitPos) {
+        LOG_ERR << "参数校验失败: 目标位置 " << maxPos << " mm 超过系统限制 " << limitPos << " mm";
         emit fault(QString("目标位置 %1 mm 超过系统最大行程限制 %2 mm").arg(maxPos).arg(limitPos));
         return;
     }
@@ -88,19 +95,24 @@ void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int 
     // 参数校验：检查最大速度限制
     double limitSpeed = ConfigManager::instance().maxSpeed();
     if (speed > limitSpeed) {
+        LOG_ERR << "参数校验失败: 目标速度 " << speed << " mm/s 超过系统限制 " << limitSpeed << " mm/s";
         emit fault(QString("目标速度 %1 mm/s 超过系统最大速度限制 %2 mm/s").arg(speed).arg(limitSpeed));
         return;
     }
 
     if (maxPos <= minPos) {
+        LOG_ERR << "参数校验失败: maxPos <= minPos";
         enterFault("startAutoScan: maxPos must be greater than minPos.");
         return;
     }
     if (speed <= 0.0) {
+        LOG_ERR << "参数校验失败: speed <= 0";
         enterFault("startAutoScan: speed must be > 0.");
         return;
     }
 
+    LOG_INFO << "参数校验通过";
+    
     m_minPos = minPos;
     m_maxPos = maxPos;
     m_speed  = speed;
@@ -114,11 +126,17 @@ void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int 
     const double distToMin = qAbs(m_position - m_minPos);
     const double distToMax = qAbs(m_position - m_maxPos);
 
+    LOG_INFO << "当前位置: " << m_position << " mm";
+    LOG_INFO << "到最小位置距离: " << distToMin << " mm, 到最大位置距离: " << distToMax << " mm";
+
     m_watchdog.start();
+    LOG_INFO << "看门狗定时器已启动";
 
     if (distToMax < distToMin) {
+        LOG_INFO << "决策: 先向最小位置移动";
         startMovingToMin();
     } else {
+        LOG_INFO << "决策: 先向最大位置移动";
         startMovingToMax();
     }
 
@@ -128,13 +146,26 @@ void TaskManager::startAutoScan(double minPos, double maxPos, double speed, int 
 
 void TaskManager::startTaskSequence(const QList<TaskStep> &steps, int cycles)
 {
+    LOG_INFO << "========== 启动任务序列 ==========";
+    LOG_INFO << "步骤数: " << steps.size() << ", 周期数: " << cycles;
+    
     if (m_state != State::Idle && m_state != State::Fault) {
+        LOG_WARN << "任务启动失败: 当前状态不是Idle或Fault";
         emit message("任务正在运行，请先停止");
         return;
     }
     if (steps.isEmpty()) {
+        LOG_ERR << "任务启动失败: 步骤列表为空";
         emit fault("任务序列为空");
         return;
+    }
+
+    // 打印所有步骤信息
+    for (int i = 0; i < steps.size(); ++i) {
+        const TaskStep &step = steps.at(i);
+        LOG_INFO << "步骤 " << i << ": 类型=" << (int)step.type 
+                 << ", 参数1=" << step.param1 << ", 参数2=" << step.param2
+                 << ", 描述=" << step.description;
     }
 
     m_sequenceSteps = steps;
@@ -148,6 +179,7 @@ void TaskManager::startTaskSequence(const QList<TaskStep> &steps, int cycles)
     // 开始执行
     setState(State::StepExecution);
     m_watchdog.start();
+    LOG_INFO << "看门狗定时器已启动";
     
     emit message(QString("高级任务序列已启动：步骤数=%1, 周期=%2").arg(steps.size()).arg(cycles));
     
@@ -159,10 +191,15 @@ void TaskManager::startTaskSequence(const QList<TaskStep> &steps, int cycles)
  */
 void TaskManager::pause()
 {
+    LOG_INFO << "========== 暂停任务 ==========";
+    LOG_INFO << "当前状态: " << (int)m_state;
+    
     if (m_state != State::AutoForward && m_state != State::AutoBackward && m_state != State::StepExecution) {
+        LOG_WARN << "暂停失败: 当前状态不支持暂停操作";
         return;
     }
     m_lastMotionState = m_state; // 记住暂停前的状态，以便 resume 恢复
+    LOG_INFO << "记录暂停前状态: " << (int)m_lastMotionState;
     setState(State::Paused);
     emit requestStop();
     emit message("任务已暂停。");
@@ -173,27 +210,37 @@ void TaskManager::pause()
  */
 void TaskManager::resume()
 {
+    LOG_INFO << "========== 恢复任务 ==========";
+    LOG_INFO << "当前状态: " << (int)m_state << ", 暂停前状态: " << (int)m_lastMotionState;
+    
     if (m_state != State::Paused) {
+        LOG_WARN << "恢复失败: 当前状态不是Paused";
         return;
     }
     
     if (m_lastMotionState == State::StepExecution) {
+         LOG_INFO << "恢复序列任务执行";
          setState(State::StepExecution);
          // 恢复时如果是等待状态，需要特殊处理，这里简化为继续执行当前步骤
          if (m_isStepWaiting) {
+             LOG_INFO << "当前步骤正在等待中";
              // 继续等待
          } else {
              // 重新触发当前步骤的动作（例如继续移动）
              if (m_currentStepIndex >= 0 && m_currentStepIndex < m_sequenceSteps.size()) {
+                 LOG_INFO << "重新执行当前步骤: " << m_currentStepIndex;
                  executeStep(m_sequenceSteps.at(m_currentStepIndex));
              }
          }
     } else if (m_lastMotionState == State::AutoForward) {
+        LOG_INFO << "恢复向前移动";
         startMovingToMax();
     } else if (m_lastMotionState == State::AutoBackward) {
+        LOG_INFO << "恢复向后移动";
         startMovingToMin();
     } else {
         // 兜底：默认去max
+        LOG_INFO << "未知的暂停前状态，默认向最大位置移动";
         startMovingToMax();
     }
     emit message("任务已恢复。");
@@ -204,7 +251,11 @@ void TaskManager::resume()
  */
 void TaskManager::stopAll()
 {
+    LOG_INFO << "========== 停止所有任务 ==========";
+    LOG_INFO << "当前状态: " << (int)m_state;
+    
     if (m_state == State::Idle) {
+        LOG_INFO << "当前已是Idle状态，无需停止";
         return;
     }
     setState(State::Stopping);
@@ -213,6 +264,7 @@ void TaskManager::stopAll()
     // 立即回到 Idle（如果需要等设备确认停稳，可把这个延后到 status 回调中处理）
     setState(State::Idle);
     m_watchdog.stop();
+    LOG_INFO << "看门狗定时器已停止";
 
     emit message("任务已停止。");
 }
@@ -277,6 +329,13 @@ void TaskManager::resetTask()
  */
 void TaskManager::onPositionUpdated(double position)
 {
+    // 只在位置有明显变化时才记录日志，避免日志泛滥
+    static double lastLoggedPos = -999.0;
+    if (qAbs(position - lastLoggedPos) > 1.0) { // 每移动1mm记录一次
+        LOG_INFO << "位置更新: " << position << " mm (状态: " << (int)m_state << ")";
+        lastLoggedPos = position;
+    }
+    
     m_position = position;
 
     // 只有运行状态下才做边界判断
@@ -284,17 +343,21 @@ void TaskManager::onPositionUpdated(double position)
         checkStepCompletion(m_position);
     } else if (m_state == State::AutoForward) {
         if (reached(m_position, m_maxPos)) {
+            LOG_INFO << "已到达最大位置: " << m_maxPos << " mm";
             // 到达 max：开始向 min
             startMovingToMin();
         }
     } else if (m_state == State::AutoBackward) {
         if (reached(m_position, m_minPos)) {
+            LOG_INFO << "已到达最小位置: " << m_minPos << " mm";
             // 到达 min：完成一次往返
             m_completedCycles++;
+            LOG_INFO << "完成周期: " << m_completedCycles << " / " << m_targetCycles;
             emit progressChanged(m_completedCycles, m_targetCycles);
 
             // 检查是否完成所有周期
             if (m_targetCycles > 0 && m_completedCycles >= m_targetCycles) {
+                LOG_INFO << "所有周期已完成，停止任务";
                 emit requestStop();
                 setState(State::Idle);
                 m_watchdog.stop();
@@ -304,11 +367,13 @@ void TaskManager::onPositionUpdated(double position)
             }
 
             // 继续下一次：向 max
+            LOG_INFO << "开始下一周期";
             startMovingToMax();
         }
     } else if (m_state == State::Resetting) {
         // 检查是否到达重置目标位置
         if (reached(m_position, m_resetTargetPos)) {
+            LOG_INFO << "已到达重置目标位置: " << m_resetTargetPos << " mm";
             emit requestStop();
             setState(State::Idle);
             m_watchdog.stop();
@@ -378,6 +443,7 @@ void TaskManager::onWatchdogTick()
 void TaskManager::setState(State s)
 {
     if (m_state == s) return;
+    LOG_INFO << "状态变更: " << (int)m_state << " -> " << (int)s;
     m_state = s;
     emit stateChanged(m_state);
 }
@@ -387,8 +453,11 @@ void TaskManager::setState(State s)
  */
 void TaskManager::enterFault(const QString& reason)
 {
+    LOG_ERR << "========== 进入故障状态 ==========";
+    LOG_ERR << "故障原因: " << reason;
     setState(State::Fault);
     m_watchdog.stop();
+    LOG_INFO << "看门狗定时器已停止";
     emit requestStop(); // 尝试停止硬件
     emit fault(reason);
     emit message(QString("FAULT: %1").arg(reason));
@@ -400,8 +469,11 @@ void TaskManager::enterFault(const QString& reason)
  */
 void TaskManager::startMovingToMax()
 {
+    LOG_INFO << "---------- 开始向最大位置移动 ----------";
+    LOG_INFO << "目标位置: " << m_maxPos << " mm, 速度: " << m_speed << " mm/s";
     setState(State::AutoForward);
     m_motionStartMs = nowMs(); // 重置超时计时
+    LOG_INFO << "运动开始时间戳: " << m_motionStartMs;
     emit requestMoveForward(m_speed);
 }
 
@@ -410,8 +482,11 @@ void TaskManager::startMovingToMax()
  */
 void TaskManager::startMovingToMin()
 {
+    LOG_INFO << "---------- 开始向最小位置移动 ----------";
+    LOG_INFO << "目标位置: " << m_minPos << " mm, 速度: " << m_speed << " mm/s";
     setState(State::AutoBackward);
     m_motionStartMs = nowMs(); // 重置超时计时
+    LOG_INFO << "运动开始时间戳: " << m_motionStartMs;
     emit requestMoveBackward(m_speed);
 }
 

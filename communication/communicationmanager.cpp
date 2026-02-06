@@ -36,6 +36,11 @@ void CommunicationManager::cleanup()
 
 void CommunicationManager::openConnection(int type, const QString &address, int portOrBaud)
 {
+    LOG_INFO << "========== 开始建立连接 ==========";
+    LOG_INFO << "连接类型: " << type << " (0=Serial, 1=TCP, 2=Simulation)";
+    LOG_INFO << "地址/端口名: " << address;
+    LOG_INFO << "波特率/端口号: " << portOrBaud;
+    
     cleanup(); // 先清理旧连接
 
     m_currentType = static_cast<ConnectionType>(type);
@@ -50,34 +55,40 @@ void CommunicationManager::openConnection(int type, const QString &address, int 
         m_simTimer->start(100); // 10Hz
         
         m_isConnected = true;
+        LOG_INFO << "仿真模式启动成功，定时器频率: 10Hz";
         emit connectionOpened(true);
     }
     else if (m_currentType == Serial) {
+        LOG_INFO << "准备打开串口连接";
         m_serial = new QSerialPort(this);
         m_serial->setPortName(address);
         m_serial->setBaudRate(portOrBaud);
+        LOG_INFO << "串口参数设置完成 - 端口: " << address << ", 波特率: " << portOrBaud;
         
         connect(m_serial, &QSerialPort::readyRead, this, &CommunicationManager::handleSerialReadyRead);
         connect(m_serial, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error){
             if (error != QSerialPort::NoError && m_isConnected) {
-                LOG_ERR << "串口错误: " << m_serial->errorString();
-                emit connectionError(m_serial->errorString());
+                QString errorMsg = getSerialErrorMessage(error);
+                LOG_ERR << "串口运行时错误: " << errorMsg << " (错误代码: " << error << ")";
+                emit connectionError(errorMsg);
                 closeConnection();
             }
         });
 
         if (m_serial->open(QIODevice::ReadWrite)) {
-            LOG_INFO << "串口已打开: " << address << " Baud:" << portOrBaud;
+            LOG_INFO << "串口已成功打开: " << address << " Baud:" << portOrBaud;
             m_isConnected = true;
             emit connectionOpened(true);
         } else {
-            LOG_ERR << "打开串口失败: " << m_serial->errorString();
+            QString errorMsg = getSerialErrorMessage(m_serial->error());
+            LOG_ERR << "打开串口失败: " << errorMsg << " (错误代码: " << m_serial->error() << ")";
             emit connectionOpened(false);
-            emit connectionError(m_serial->errorString());
+            emit connectionError(errorMsg);
             cleanup();
         }
     }
     else if (m_currentType == Tcp) {
+        LOG_INFO << "准备建立TCP连接";
         m_tcpSocket = new QTcpSocket(this);
         connect(m_tcpSocket, &QTcpSocket::readyRead, this, &CommunicationManager::handleTcpReadyRead);
         connect(m_tcpSocket, &QTcpSocket::connected, this, &CommunicationManager::handleTcpConnected);
@@ -87,6 +98,7 @@ void CommunicationManager::openConnection(int type, const QString &address, int 
 
         LOG_INFO << "正在连接 TCP: " << address << ":" << portOrBaud;
         m_tcpSocket->connectToHost(address, portOrBaud);
+        LOG_INFO << "TCP连接请求已发送，等待响应...";
         // 异步连接，结果在 handleTcpConnected 或 handleTcpError 中处理
     }
 }
@@ -94,11 +106,13 @@ void CommunicationManager::openConnection(int type, const QString &address, int 
 void CommunicationManager::closeConnection()
 {
     if (!m_isConnected && !m_serial && !m_tcpSocket && !m_simTimer) {
+        LOG_INFO << "closeConnection: 无活动连接，跳过关闭操作";
         return;
     }
+    LOG_INFO << "========== 开始关闭连接 ==========";
     const bool wasConnected = m_isConnected;
     cleanup();
-    LOG_INFO << "连接已关闭";
+    LOG_INFO << "连接已关闭，资源已清理";
     if (wasConnected && !QCoreApplication::closingDown()) {
         emit connectionOpened(false);
     }
@@ -106,7 +120,7 @@ void CommunicationManager::closeConnection()
 
 void CommunicationManager::handleTcpConnected()
 {
-    LOG_INFO << "TCP 连接成功";
+    LOG_INFO << "TCP 连接成功建立";
     m_isConnected = true;
     emit connectionOpened(true);
 }
@@ -114,14 +128,16 @@ void CommunicationManager::handleTcpConnected()
 void CommunicationManager::handleTcpError()
 {
     if (m_tcpSocket) {
-        QString err = m_tcpSocket->errorString();
-        LOG_ERR << "TCP 错误: " << err;
-        emit connectionError(err);
+        QString errorMsg = getTcpErrorMessage(m_tcpSocket->error());
+        LOG_ERR << "TCP 错误: " << errorMsg << " (错误代码: " << m_tcpSocket->error() << ")";
+        emit connectionError(errorMsg);
         // 如果是正在连接阶段失败，也需要发 connectionOpened(false)
         if (!m_isConnected) {
+            LOG_INFO << "TCP连接建立失败";
             emit connectionOpened(false);
         } else {
             // 如果是运行中断开
+            LOG_INFO << "TCP运行时断开连接";
             closeConnection();
         }
     }
@@ -129,48 +145,65 @@ void CommunicationManager::handleTcpError()
 
 void CommunicationManager::processCommand(ControlCommand cmd)
 {
+    LOG_INFO << "处理控制指令 - 类型: " << cmd.type << ", 参数: " << cmd.param;
+    
     if (m_currentType == Simulation) {
         // 仿真逻辑
         if (cmd.type == ControlCommand::MoveForward) {
             m_simState.status = DeviceStatus::MovingForward;
             m_simTargetSpeed = cmd.param;
+            LOG_INFO << "仿真: 开始向前移动，目标速度: " << cmd.param << " mm/s";
         } else if (cmd.type == ControlCommand::MoveBackward) {
             m_simState.status = DeviceStatus::MovingBackward;
             m_simTargetSpeed = cmd.param;
+            LOG_INFO << "仿真: 开始向后移动，目标速度: " << cmd.param << " mm/s";
         } else if (cmd.type == ControlCommand::Stop) {
             m_simState.status = DeviceStatus::Idle;
             m_simTargetSpeed = 0.0;
+            LOG_INFO << "仿真: 停止运动";
         } else if (cmd.type == ControlCommand::SetSpeed) {
             // 仅在运动中生效
              if (m_simState.status != DeviceStatus::Idle) {
                  m_simTargetSpeed = cmd.param;
+                 LOG_INFO << "仿真: 设置速度为: " << cmd.param << " mm/s";
+             } else {
+                 LOG_INFO << "仿真: 设备空闲，忽略速度设置指令";
              }
         }
         return;
     }
 
     QByteArray packet = Protocol::pack(cmd);
+    LOG_INFO << "指令已打包，数据包大小: " << packet.size() << " 字节";
     
     if (m_currentType == Serial && m_serial && m_serial->isOpen()) {
-        m_serial->write(packet);
+        qint64 written = m_serial->write(packet);
+        LOG_INFO << "串口发送: " << written << " 字节";
     }
     else if (m_currentType == Tcp && m_tcpSocket && m_tcpSocket->state() == QAbstractSocket::ConnectedState) {
-        m_tcpSocket->write(packet);
+        qint64 written = m_tcpSocket->write(packet);
         m_tcpSocket->flush();
+        LOG_INFO << "TCP发送: " << written << " 字节";
+    } else {
+        LOG_WARN << "无法发送指令: 设备未连接或连接状态异常";
     }
 }
 
 void CommunicationManager::handleSerialReadyRead()
 {
     if (!m_serial) return;
-    m_rxBuffer.append(m_serial->readAll());
+    QByteArray data = m_serial->readAll();
+    LOG_INFO << "串口接收数据: " << data.size() << " 字节";
+    m_rxBuffer.append(data);
     parseBuffer();
 }
 
 void CommunicationManager::handleTcpReadyRead()
 {
     if (!m_tcpSocket) return;
-    m_rxBuffer.append(m_tcpSocket->readAll());
+    QByteArray data = m_tcpSocket->readAll();
+    LOG_INFO << "TCP接收数据: " << data.size() << " 字节";
+    m_rxBuffer.append(data);
     parseBuffer();
 }
 
@@ -259,4 +292,76 @@ void CommunicationManager::handleSimTimeout()
     }
     
     emit feedbackReceived(m_simState);
+}
+
+QString CommunicationManager::getSerialErrorMessage(QSerialPort::SerialPortError error)
+{
+    switch (error) {
+        case QSerialPort::NoError:
+            return "无错误";
+        case QSerialPort::DeviceNotFoundError:
+            return "串口设备未找到，请检查设备是否已连接";
+        case QSerialPort::PermissionError:
+            return "串口访问权限被拒绝，请检查设备是否被其他程序占用";
+        case QSerialPort::OpenError:
+            return "无法打开串口，设备可能已被占用或不存在";
+        case QSerialPort::NotOpenError:
+            return "串口未打开";
+        case QSerialPort::WriteError:
+            return "串口写入失败";
+        case QSerialPort::ReadError:
+            return "串口读取失败";
+        case QSerialPort::ResourceError:
+            return "串口资源错误，设备可能已断开连接";
+        case QSerialPort::UnsupportedOperationError:
+            return "串口不支持此操作";
+        case QSerialPort::TimeoutError:
+            return "串口操作超时";
+        default:
+            return QString("串口错误 (代码: %1)").arg(error);
+    }
+}
+
+QString CommunicationManager::getTcpErrorMessage(QAbstractSocket::SocketError error)
+{
+    switch (error) {
+        case QAbstractSocket::ConnectionRefusedError:
+            return "TCP连接被拒绝，请检查目标设备是否开启服务";
+        case QAbstractSocket::RemoteHostClosedError:
+            return "远程主机关闭了连接";
+        case QAbstractSocket::HostNotFoundError:
+            return "找不到主机，请检查IP地址是否正确";
+        case QAbstractSocket::SocketAccessError:
+            return "网络访问权限被拒绝";
+        case QAbstractSocket::SocketResourceError:
+            return "网络资源不足";
+        case QAbstractSocket::SocketTimeoutError:
+            return "TCP连接超时，请检查网络连接和目标设备";
+        case QAbstractSocket::NetworkError:
+            return "网络错误，请检查网络连接";
+        case QAbstractSocket::AddressInUseError:
+            return "地址已被占用";
+        case QAbstractSocket::SocketAddressNotAvailableError:
+            return "地址不可用";
+        case QAbstractSocket::UnsupportedSocketOperationError:
+            return "不支持的网络操作";
+        case QAbstractSocket::ProxyAuthenticationRequiredError:
+            return "代理服务器需要身份验证";
+        case QAbstractSocket::SslHandshakeFailedError:
+            return "SSL握手失败";
+        case QAbstractSocket::UnfinishedSocketOperationError:
+            return "网络操作未完成";
+        case QAbstractSocket::ProxyConnectionRefusedError:
+            return "代理服务器拒绝连接";
+        case QAbstractSocket::ProxyConnectionClosedError:
+            return "代理服务器关闭了连接";
+        case QAbstractSocket::ProxyConnectionTimeoutError:
+            return "代理服务器连接超时";
+        case QAbstractSocket::ProxyNotFoundError:
+            return "找不到代理服务器";
+        case QAbstractSocket::ProxyProtocolError:
+            return "代理协议错误";
+        default:
+            return QString("TCP错误 (代码: %1)").arg(error);
+    }
 }

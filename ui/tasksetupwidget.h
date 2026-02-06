@@ -7,6 +7,8 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTableWidget>
+#include <QComboBox>
+#include <QDateEdit>
 
 class QSqlTableModel;
 
@@ -50,10 +52,41 @@ signals:
     void deleteTaskClicked(int taskId);
     void batchDeleteTasksClicked(const QList<int> &taskIds);
 
+private slots:
+    void checkInput();
+    void onTableBtnClicked();
+    void selectAllTasks();
+    void selectNoneTasks();
+    void deleteSelectedTasks();
+    void onCheckboxStateChanged();
+    
+    // 新增：高级筛选相关槽函数
+    void onSearchTextChanged();
+    void onFilterChanged();
+    void onResetFilters();
+    void onAdvancedFilterToggled();
+
+private:
+    void applyFilters();
+    void populateFilteredTable();
+    bool matchesFilters(int row) const;
+
 private:
     QLineEdit *m_editOperator;
     QLineEdit *m_editTubeId;
     QPushButton *m_btnCreate;
+    
+    // 新增：搜索和筛选控件
+    QLineEdit *m_searchEdit;
+    QPushButton *m_btnAdvancedFilter;
+    QWidget *m_advancedFilterWidget;
+    QLineEdit *m_filterTaskId;
+    QDateEdit *m_filterStartDate;
+    QDateEdit *m_filterEndDate;
+    QComboBox *m_filterOperator;
+    QLineEdit *m_filterTubeId;
+    QComboBox *m_filterStatus;
+    QPushButton *m_btnResetFilters;
     
     // 任务列表相关
     QTableWidget *m_taskTable;
@@ -65,14 +98,10 @@ private:
     
     // 当前活跃任务ID
     int m_activeTaskId = -1;
-
-private slots:
-    void checkInput();
-    void onTableBtnClicked();
-    void selectAllTasks();
-    void selectNoneTasks();
-    void deleteSelectedTasks();
-    void onCheckboxStateChanged();
+    
+    // 数据存储
+    QSqlTableModel *m_model = nullptr;
+    QList<QList<QVariant>> m_allTaskData; // 存储所有任务数据用于筛选
 };
 
 #endif // TASKSETUPWIDGET_H
